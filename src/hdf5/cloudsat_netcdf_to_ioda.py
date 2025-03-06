@@ -24,6 +24,7 @@ from pyiodaconv.def_jedi_utils import epoch, iso8601_string
 from pyiodaconv.def_jedi_utils import record_time
 from read_cloudsat import read_cloudsat, is_hdf4
 from read_dpr_gpm import read_dpr_gpm, is_hdf5
+from read_cpr_earthcare import read_cpr_earthcare, is_cpr_earthcare
 
 float_missing_value = iconv.get_default_fill_val(np.float32)
 int_missing_value = iconv.get_default_fill_val(np.int32)
@@ -35,9 +36,11 @@ obsValName = iconv.OvalName()
 # globals
 CLOUDSAT_WMO_sat_ID = 788
 GPM_WMO_sat_ID = 288
+CPR_EARTHCARE_WMO_sat_ID = 146
 
 # parameter
-radarReflectivityAtt = 'ReflectivityAttenuated'
+obs_params = ['ReflectivityAttenuated', 'DopplerVelocity']
+units = {'ReflectivityAttenuated' : 'dBZ', 'DopplerVelocity' : 'm/s'}
 
 locationKeyList = [
     ("latitude", "float"),
@@ -46,7 +49,6 @@ locationKeyList = [
 ]
 
 GlobalAttrs = {}
-
 
 def main(args):
 
@@ -72,13 +74,18 @@ def main(args):
         if not os.path.isfile(input_filename):
             print(f"'{input_filename}' does not exist or is not a file.")
             sys.exit()
-        file_is_hdf4 = is_hdf4(input_filename)
-        file_is_hdf5 = is_hdf5(input_filename)
+        file_is_cpr_cloudsat  = is_hdf4(input_filename)
+        file_is_dpr_gpm       = is_hdf5(input_filename)
+        file_is_cpr_earthcare = is_cpr_earthcare(input_filename)
+        
         file_obs_data = None
-        if file_is_hdf4 and not file_is_hdf5:
+        if file_is_cpr_cloudsat:
             file_obs_data = read_cloudsat(input_filename)
             sensor_name = 'CloudSat'
-        elif file_is_hdf5 and not file_is_hdf4:
+        elif file_is_dpr_gpm:
+            file_obs_data = read_cpr_earthcare(input_filename)
+            sensor_name = 'EarthCARE-CPR'
+        elif file_is_dpr_gpm:
             file_obs_data = read_dpr_gpm(input_filename)
             sensor_name = 'GPM-DPR'
 
@@ -107,17 +114,15 @@ def main(args):
         GlobalAttrs['datetimeReference'] = dtg.strftime("%Y-%m-%dT%H:%M:%SZ")
     GlobalAttrs['converter'] = os.path.basename(__file__)
 
-    # set key for observable
-    k = radarReflectivityAtt
-
     # pass parameters to the IODA writer
-    VarDims = {
-        k: ['Location', 'Channel'],
-        'sensorChannelNumber': ['Channel'],
-        'sensorCentralFrequency': ['Channel'],
-        'sensorCentralWavenumber': ['Channel'],
-    }
+    VarDims = {'sensorChannelNumber': ['Channel'],
+               'sensorCentralFrequency': ['Channel'],
+               'sensorCentralWavenumber': ['Channel'],}
 
+    # set key for observable       
+    for k in obs_params:
+       VarDims[k] = ['Location', 'Channel']
+               
     DimDict = {
         'Location': nlocs,
         'Channel': obs_data[('sensorChannelNumber', metaDataName)],
@@ -128,11 +133,12 @@ def main(args):
     set_obspace_attributes(VarAttrs)
     set_metadata_attributes(VarAttrs)
 
-    VarAttrs[(k, 'ObsValue')]['_FillValue'] = float_missing_value
-    VarAttrs[(k, 'ObsError')]['_FillValue'] = float_missing_value
-    VarAttrs[(k, 'PreQC')]['_FillValue'] = int_missing_value
-    VarAttrs[(k, 'ObsValue')]['units'] = 'dBz'
-    VarAttrs[(k, 'ObsError')]['units'] = 'dBz'
+    for k in obs_params:
+       VarAttrs[(k, 'ObsValue')]['_FillValue'] = float_missing_value
+       VarAttrs[(k, 'ObsError')]['_FillValue'] = float_missing_value
+       VarAttrs[(k, 'PreQC')]['_FillValue'] = int_missing_value
+       VarAttrs[(k, 'ObsValue')]['units'] = units[k]
+       VarAttrs[(k, 'ObsError')]['units'] = units[k]
 
     # final write to IODA file
     writer.BuildIoda(obs_data, VarDims, VarAttrs, GlobalAttrs)
@@ -148,7 +154,8 @@ def populate_obs_data(file_obs_data, sensor_name):
     file_obs_data = file_obs_data.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     file_obs_data = file_obs_data.transpose("Location", "channel")
 
-    locid = (file_obs_data.obs.values < -100) | (file_obs_data.obs.values > 100) | np.isnan(file_obs_data.obs.values) | np.isinf(file_obs_data.obs.values)
+    reff_att = file_obs_data.ReflectivityAttenuated.values 
+    locid = ( reff_att < -100) | (reff_att > 100) | np.isnan(reff_att) | np.isinf(reff_att)
     locid = file_obs_data.Location.values[np.sum(locid, axis=1) == 0]
     file_obs_data = file_obs_data.isel(Location=locid)
     # end conditioning and cleansing block
@@ -185,21 +192,18 @@ def populate_obs_data(file_obs_data, sensor_name):
     obs_data[('dateTime', metaDataName)] = file_obs_data.epoch_time.values.astype(np.int64)
 
     obs_data[('sequenceNumber', metaDataName)] = file_obs_data.sequenceNumber.values.astype(np.int32)
-    k = radarReflectivityAtt
+
     # have to reorder the channel axis to be last then merge ( nscans x nspots = nlocs )
-    obs_data[(k, "ObsValue")] = file_obs_data.obs.values.astype(np.float32)
-    obs_data[(k, "ObsError")] = np.full((nobs, nchans), 5.0, dtype='float32')
-    obs_data[(k, "PreQC")] = np.full((nobs, nchans), 0, dtype='int32')
+    for k in obs_params:
+       obs_data[(k, "ObsValue")] = file_obs_data[k].values.astype(np.float32)
+       obs_data[(k, "ObsError")] = np.full((nobs, nchans), 5.0, dtype='float32')
+       obs_data[(k, "PreQC")] = np.full((nobs, nchans), 0, dtype='int32')
 
     return obs_data
 
 
 def init_obs_loc():
-    k = radarReflectivityAtt
     obs = {
-        (k, "ObsValue"): [],
-        (k, "ObsError"): [],
-        (k, "PreQC"): [],
         ('satelliteIdentifier', metaDataName): [],
         ('sensorChannelNumber', metaDataName): [],
         ('latitude', metaDataName): [],
@@ -213,6 +217,11 @@ def init_obs_loc():
         ('Layer', metaDataName): [],
     }
 
+    for k in obs_params:
+        obs[(k, "ObsValue")] = []
+        obs[(k, "ObsError")] = []
+        obs[(k, "PreQC")] = []
+        
     return obs
 
 
@@ -222,6 +231,8 @@ def get_WMO_satellite_ID(attrs_shortname):
         WMO_sat_ID = CLOUDSAT_WMO_sat_ID
     elif 'GPM' in attrs_shortname:
         WMO_sat_ID = GPM_WMO_sat_ID
+    elif 'EarthCARE' in attrs_shortname:
+        WMO_sat_ID = CPR_EARTHCARE_WMO_sat_ID        
     else:
         WMO_sat_ID = -1
         print("could not determine satellite from filename: %s" % attrs_shortname)

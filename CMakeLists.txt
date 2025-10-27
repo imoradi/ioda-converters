@@ -21,6 +21,7 @@ include( ecbuild_system NO_POLICY_SCOPE )
 ecbuild_declare_project()
 
 
+include( iodaconv_functions )
 include( iodaconv_extra_macros )
 include( iodaconv_compiler_flags )
 
@@ -85,7 +86,7 @@ find_package( MPI )
 find_package( ioda REQUIRED )
 
 find_package( bufr 12.0.1 QUIET )
-find_package( NetCDF QUIET COMPONENTS Fortran )
+find_package( NetCDF QUIET COMPONENTS Fortran CXX )
 
 if( bufr_FOUND AND NetCDF_Fortran_FOUND )
     set(iodaconv_gnssro_ENABLED True)

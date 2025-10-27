@@ -9,10 +9,12 @@ add_subdirectory(pyiodaconv)
 add_subdirectory(marine)
 add_subdirectory(conventional)
 add_subdirectory(ncep)
+add_subdirectory(space_weather)
 add_subdirectory(ssec)
 add_subdirectory(wrfda_ncdiag)
 add_subdirectory(single_observation)
 add_subdirectory(mrms)
+add_subdirectory(ncar/obs2ioda)
 
 # Optional components
 if(iodaconv_gnssro_ENABLED)

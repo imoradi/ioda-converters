@@ -39,7 +39,9 @@ GPM_WMO_sat_ID = 288
 CPR_EARTHCARE_WMO_sat_ID = 146
 
 # parameter
-obs_params = ['ReflectivityAttenuated', 'DopplerVelocity']
+obs_params = {'CloudSat': ['ReflectivityAttenuated'],
+              'EarthCARE-CPR': ['ReflectivityAttenuated', 'DopplerVelocity'],
+              'GPM-DPR': ['ReflectivityAttenuated']}
 units = {'ReflectivityAttenuated' : 'dBZ', 'DopplerVelocity' : 'm/s'}
 
 locationKeyList = [
@@ -64,30 +66,27 @@ def main(args):
         print(f'no observation files provided exiting')
         sys.exit()
 
-    if len(args.input_files) > 1:
-        print(f'please provide unique input files associated to a unique output file')
-        print(f'   ... TBD multiple input files to a single output file')
-        sys.exit()
-
-    for input_filename in args.input_files:
-
-        if not os.path.isfile(input_filename):
-            print(f"'{input_filename}' does not exist or is not a file.")
+    file_obs_data = []
+    for file_path in args.input_files:
+        if not os.path.isfile(file_path):
+            print(f"'{file_path}' does not exist or is not a file.")
             sys.exit()
-        file_is_cpr_cloudsat  = is_hdf4(input_filename)
-        file_is_dpr_gpm       = is_hdf5(input_filename)
-        file_is_cpr_earthcare = is_cpr_earthcare(input_filename)
-        
-        file_obs_data = None
+        file_is_cpr_cloudsat  = is_hdf4(file_path)
+        file_is_dpr_gpm       = is_hdf5(file_path)
+        file_is_cpr_earthcare = is_cpr_earthcare(file_path)
+
         if file_is_cpr_cloudsat:
-            file_obs_data = read_cloudsat(input_filename)
+            file_obs_data.append(read_cloudsat(file_path))
             sensor_name = 'CloudSat'
-        elif file_is_dpr_gpm:
-            file_obs_data = read_cpr_earthcare(input_filename)
+        elif file_is_cpr_earthcare:
+            file_obs_data.append(read_cpr_earthcare(file_path))
             sensor_name = 'EarthCARE-CPR'
         elif file_is_dpr_gpm:
-            file_obs_data = read_dpr_gpm(input_filename)
+            file_obs_data.append(read_dpr_gpm(file_path))
             sensor_name = 'GPM-DPR'
+        print(f"Finshed Reading {sensor_name} Obs ...")
+
+    file_obs_data = concat_file_obs_data(file_obs_data)
 
     # report time
     toc = record_time(tic=tic)
@@ -102,7 +101,6 @@ def main(args):
     GlobalAttrs["sensorCentralFrequency"] = str(file_obs_data.centerFreq.values)
 
     obs_data = populate_obs_data(file_obs_data, sensor_name)
-
     nlocs_int = np.array(len(obs_data[('latitude', metaDataName)]), dtype='int64')
     nlocs = nlocs_int.item()
     nchans = len(obs_data[('sensorChannelNumber', metaDataName)])
@@ -120,7 +118,7 @@ def main(args):
                'sensorCentralWavenumber': ['Channel'],}
 
     # set key for observable       
-    for k in obs_params:
+    for k in obs_params[sensor_name]:
        VarDims[k] = ['Location', 'Channel']
                
     DimDict = {
@@ -133,7 +131,7 @@ def main(args):
     set_obspace_attributes(VarAttrs)
     set_metadata_attributes(VarAttrs)
 
-    for k in obs_params:
+    for k in obs_params[sensor_name]:
        VarAttrs[(k, 'ObsValue')]['_FillValue'] = float_missing_value
        VarAttrs[(k, 'ObsError')]['_FillValue'] = float_missing_value
        VarAttrs[(k, 'PreQC')]['_FillValue'] = int_missing_value
@@ -146,6 +144,27 @@ def main(args):
     # report time
     toc = record_time(tic=tic)
 
+def concat_file_obs_data(file_obs_data, start_date=None, end_date=None): 
+
+    file_obs_data = xr.concat(file_obs_data, dim='obs_id')
+
+    keep_obs_ids = np.ones(file_obs_data.obs_id.size, dtype=bool)
+    if start_date is not None:
+        start_date = datetime.strptime(start_date, "%Y-%m-%d-%H-%M-%S")
+        start_date = (np.datetime64(start_date) - np.datetime64(epoch)).astype(np.int64)
+        keep_id = file_obs_data.epoch_time.values >= start_date
+        keep_obs_ids = keep_obs_ids[keep_id]
+
+    if end_date is not None:
+        end_date = datetime.strptime(end_date, "%Y-%m-%d-%H-%M-%S")
+        end_date = (np.datetime64(end_date) - np.datetime64(epoch)).astype(np.int64)
+        keep_id = file_obs_data.epoch_time.values <= start_date
+        keep_obs_ids = keep_obs_ids[keep_id]
+
+    # only keep obs within the time range
+    file_obs_data = file_obs_data.isel(obs_id=keep_obs_ids)
+
+    return file_obs_data
 
 def populate_obs_data(file_obs_data, sensor_name):
 
@@ -171,7 +190,7 @@ def populate_obs_data(file_obs_data, sensor_name):
     WMO_sat_ID = get_WMO_satellite_ID(sensor_name)
 
     # allocate space for output depending on which variables are to be saved
-    obs_data = init_obs_loc()
+    obs_data = init_obs_loc(sensor_name)
 
     obs_data[('latitude', metaDataName)] = file_obs_data.lat.values.astype(np.float32)
     obs_data[('longitude', metaDataName)] = file_obs_data.lon.values.astype(np.float32)
@@ -194,15 +213,19 @@ def populate_obs_data(file_obs_data, sensor_name):
     obs_data[('sequenceNumber', metaDataName)] = file_obs_data.sequenceNumber.values.astype(np.int32)
 
     # have to reorder the channel axis to be last then merge ( nscans x nspots = nlocs )
-    for k in obs_params:
+    for k in obs_params[sensor_name]:
        obs_data[(k, "ObsValue")] = file_obs_data[k].values.astype(np.float32)
        obs_data[(k, "ObsError")] = np.full((nobs, nchans), 5.0, dtype='float32')
-       obs_data[(k, "PreQC")] = np.full((nobs, nchans), 0, dtype='int32')
+       if f"PreQC_{k}" in file_obs_data:
+           preqc = file_obs_data[f"PreQC_{k}"].values.astype('int32')
+       else:
+           preqc = np.full((nobs, nchans), 0, dtype='int32')
+       obs_data[(k, "PreQC")] = preqc
 
     return obs_data
 
 
-def init_obs_loc():
+def init_obs_loc(sensor_name):
     obs = {
         ('satelliteIdentifier', metaDataName): [],
         ('sensorChannelNumber', metaDataName): [],
@@ -217,7 +240,7 @@ def init_obs_loc():
         ('Layer', metaDataName): [],
     }
 
-    for k in obs_params:
+    for k in obs_params[sensor_name]:
         obs[(k, "ObsValue")] = []
         obs[(k, "ObsError")] = []
         obs[(k, "PreQC")] = []
@@ -261,6 +284,14 @@ if __name__ == "__main__":
         '-o', '--output',
         help='path to output ioda file',
         type=str, default=os.path.join(os.getcwd(), 'output.nc4'))
+    optional.add_argument(
+        '-s', '--start_date',
+        help='state date for output data in YYYY-MM-DD-HH-MM-SS',
+        type=str, default=None)
+    optional.add_argument(
+        '-e', '--end_date',
+        help='end date for output data in YYYY-MM-DD-HH-MM-SS',
+        type=str, default=None)
 
     args = parser.parse_args()
 

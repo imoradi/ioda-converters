@@ -39,14 +39,36 @@ def read_cpr_earthcare(fname):
     print(fname)
     data = xr.open_dataset(fname, group='ScienceData/Data')
     geo  = xr.open_dataset(fname, group='ScienceData/Geo')
-    data = data.rename({'phony_dim_10': 'obs_id', 'phony_dim_11': 'elevation'})
-    geo = geo.rename({'phony_dim_14': 'obs_id', 'phony_dim_15': 'elevation'})
+    if 'phony_dim_10' in data.dims:
+        dobsdim = 'phony_dim_10'
+        delevdim = 'phony_dim_11'
+        reflk = 'radarReflectivityFactor'
+        timek = 'profileTime'
+        doplk = 'dopplerVelocity'
+        heightk = 'binHeight'
+    else:    
+        dobsdim = 'phony_dim_3'
+        delevdim = 'phony_dim_4'
+        reflk = 'cloud_radar_reflectivity_1km'
+        timek = 'time'
+        doplk = 'cloud_terminal_velocity1_1km'
+        heightk = 'height'
+
+    if 'phony_dim_14' in geo.dims:
+        gobsdim = 'phony_dim_14'
+        gelevdim = 'phony_dim_15'
+    else:    
+        gobsdim = 'phony_dim_7'
+        gelevdim = 'phony_dim_8'
+        
+    data = data.rename({dobsdim: 'obs_id', delevdim: 'elevation'})
+    geo = geo.rename({gobsdim: 'obs_id', gelevdim: 'elevation'})
     
-    time1 = geo['profileTime']
+    time1 = geo[timek]
     epoch_np = np.datetime64(epoch)
-    epoch_time = (time1 - epoch_np).astype(np.int64) 
-    nobs = data['radarReflectivityFactor'].shape[0]
-    nlev = data['radarReflectivityFactor'].shape[1]
+    epoch_time = ((time1 - epoch_np) / np.timedelta64(1, "s")).astype(np.int64
+    nobs = data[reflk].shape[0]
+    nlev = data[reflk].shape[1]
     nchan = 1
     obs_id = np.arange(nobs)
     channel = [1]
@@ -62,26 +84,29 @@ def read_cpr_earthcare(fname):
     
     ecdata['lat'] = geo['latitude']       # "nscan,nray=nfov";
     ecdata['lon'] = geo['longitude']      # "nscan,nray=nfov";
-    ecdata['height'] = geo['binHeight']  # "nscan,nray=nfov,nbin=nelev";
-    ecdata['epoch_time'] = geo['profileTime']
+    ecdata['height'] = geo[heightk]      # "nscan,nray=nfov,nbin=nelev";
+    ecdata['epoch_time'] = geo[timek]
     ecdata['epoch_time'].values = np.squeeze(epoch_time)
-    ecdata['ReflectivityAttenuated'] = 10 * np.log10(data['radarReflectivityFactor'])  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
+    ecdata['ReflectivityAttenuated'] = 10 * np.log10(data[reflk])  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
     ecdata['ReflectivityAttenuated'].values[ecdata['ReflectivityAttenuated'].values < -100] = np.nan
-    ecdata['DopplerVelocity'] = data['dopplerVelocity']
-    ecdata['surfaceBinNumber'] = data['surfaceBinNumber']
-    ecdata['rayQualityFlag'] =  data['rayQualityFlag']
-    ecdata['rangeBinValidNumber'] = data['rangeBinValidNumber']
-    
+    ecdata['DopplerVelocity'] = data[doplk]
+    if 'rayQualityFlag' in data:
+        ecdata['PreQC_ReflectivityAttenuated'] =  data['rayQualityFlag']
+        ecdata['PreQC_DopplerVelocity'] =  data['dopplerStatusFlag']
+        ecdata['surfaceBinNumber'] = data['surfaceBinNumber']
+        ecdata['rangeBinValidNumber'] = data['rangeBinValidNumber']
+    else: 
+        ecdata['quality_flag'] =  data['quality_flag_1km'] #rayQualityFlag']
     ecdata['zenith_angle'] = ecdata['obs_id'].copy() * 0.0
     ecdata['azimuth_angle'] = ecdata['obs_id'].copy() * 0.0
     ecdata['fov1'] = ecdata['obs_id'].copy() * 0.0
-
-
     ecdata['scan_line'] = ecdata['obs_id'].copy()
     ecdata['fov1'] = ecdata['obs_id'].copy() * 0.0
 
     # expand the dimension for obs (reflectivities)
-    expand_dims = {'ReflectivityAttenuated': {'channel': 1}, 'DopplerVelocity': {'channel': 1}}
+    expand_dims = {'ReflectivityAttenuated': {'channel': 1}}
+    if 'DopplerVelocity' in ecdata:
+        expand_dims['DopplerVelocity'] = {'channel': 1}
 
     for k in expand_dims:
         ecdata[k] = ecdata[k].expand_dims(dim=expand_dims[k])
@@ -96,3 +121,4 @@ def read_cpr_earthcare(fname):
     ecdata["sequenceNumber"] = xr.DataArray(np.arange(ecdata.obs_id.size), ecdata.obs_id.coords)
     
     return ecdata
+

@@ -66,7 +66,7 @@ def read_cpr_earthcare(fname):
     
     time1 = geo[timek]
     epoch_np = np.datetime64(epoch)
-    epoch_time = ((time1 - epoch_np) / np.timedelta64(1, "s")).astype(np.int64
+    epoch_time = ((time1 - epoch_np) / np.timedelta64(1, "s")).astype(np.int64)
     nobs = data[reflk].shape[0]
     nlev = data[reflk].shape[1]
     nchan = 1

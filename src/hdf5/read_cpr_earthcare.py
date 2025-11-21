@@ -114,6 +114,16 @@ def read_cpr_earthcare(fname):
     # reverse the coordinates and add obs_id
     ecdata = ecdata.transpose('obs_id', 'channel', 'elevation')
 
+    # test =====
+    lid = (ecdata['lat'].values > 0) & (ecdata['lat'].values < 70)
+    if np.any(ecdata['lon'].values < 0):
+       lid1 = (ecdata['lon'].values < 10) & (ecdata['lon'].values > -110)
+    else:   
+       lid1 = (ecdata['lon'].values < 10) | (ecdata['lon'].values > 250)
+    obs_id = np.arange(0, ecdata.obs_id.size)[lid & lid1]
+    ecdata = ecdata.isel(obs_id=obs_id)
+    #=============
+
     # convert to jd/lev/lat/lon
     lon = ecdata['lon'].values
     lon[lon < 0] = 360 + lon[lon < 0]

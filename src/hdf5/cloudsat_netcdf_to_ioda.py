@@ -76,13 +76,19 @@ def main(args):
         file_is_cpr_earthcare = is_cpr_earthcare(file_path)
 
         if file_is_cpr_cloudsat:
-            file_obs_data.append(read_cloudsat(file_path))
+            xrdata = read_cloudsat(file_path)
+            if xrdata.obs_id.size > 0:
+               file_obs_data.append(xrdata)
             sensor_name = 'CloudSat'
         elif file_is_cpr_earthcare:
-            file_obs_data.append(read_cpr_earthcare(file_path))
+            xrdata = read_cpr_earthcare(file_path)
+            if xrdata.obs_id.size > 0:
+               file_obs_data.append(xrdata)
             sensor_name = 'EarthCARE-CPR'
         elif file_is_dpr_gpm:
-            file_obs_data.append(read_dpr_gpm(file_path))
+            xrdata = read_dpr_gpm(file_path)
+            if xrdata.obs_id.size > 0:
+               file_obs_data.append(xrdata)
             sensor_name = 'GPM-DPR'
         print(f"Finshed Reading {sensor_name} Obs ...")
 

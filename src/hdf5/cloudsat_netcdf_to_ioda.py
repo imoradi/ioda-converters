@@ -177,10 +177,7 @@ def populate_obs_data(file_obs_data, sensor_name):
     file_obs_data = file_obs_data.rename_vars({"elevation": "elevation1"})
     file_obs_data = file_obs_data.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     file_obs_data = file_obs_data.transpose("Location", "channel")
-    if sensor_name == 'GPM-DPR':
-        reff_att = file_obs_data.obs_measured.values 
-    else:
-        reff_att = file_obs_data.ReflectivityAttenuated.values 
+    reff_att = file_obs_data.ReflectivityAttenuated.values 
     locid = ( reff_att < -100) | (reff_att > 100) | np.isnan(reff_att) | np.isinf(reff_att)
     locid = file_obs_data.Location.values[np.sum(locid, axis=1) == 0]
     file_obs_data = file_obs_data.isel(Location=locid)

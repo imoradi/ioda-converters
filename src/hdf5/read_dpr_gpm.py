@@ -103,7 +103,7 @@ def read_dpr_hdf_file(fname):
     dprdata['height'] = xr_data['FS/PRE/height']  # "nscan,nray=nfov,nbin=nelev";
     dprdata['epoch_time'] = xr_data['FS/navigation/scLat'].copy()
     dprdata['epoch_time'].values = np.squeeze(epoch_time)
-    dprdata['obs_measured'] = xr_data['FS/PRE/zFactorMeasured']  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
+    dprdata['ReflectivityAttenuated'] = xr_data['FS/PRE/zFactorMeasured']  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
     dprdata['obs'] = xr_data['FS/SLV/zFactorFinal']  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
     dprdata['obs'].values[dprdata['obs'].values < -100] = np.nan
     dprdata['zenith_angle'] = xr_data['FS/PRE/localZenithAngle']  # nscan,nray=nfov,nfreq=nchan

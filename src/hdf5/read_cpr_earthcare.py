@@ -125,9 +125,11 @@ def read_cpr_earthcare(fname):
     #=============
 
     # convert to jd/lev/lat/lon
+    '''
     lon = ecdata['lon'].values
     lon[lon < 0] = 360 + lon[lon < 0]
     ecdata['lon'].values = lon
+    '''
     ecdata["sequenceNumber"] = xr.DataArray(np.arange(ecdata.obs_id.size), ecdata.obs_id.coords)
     
     return ecdata

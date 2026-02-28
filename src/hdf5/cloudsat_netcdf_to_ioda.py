@@ -105,7 +105,6 @@ def main(args):
     GlobalAttrs["platformCommonName"] = sensor_upper
     GlobalAttrs["platformLongDescription"] = f"{sensor_upper} Attenuated Reflectivity"
     GlobalAttrs["sensorCentralFrequency"] = str(file_obs_data.centerFreq.values)
-    print(file_obs_data)
     obs_data = populate_obs_data(file_obs_data, sensor_name)
     nlocs_int = np.array(len(obs_data[('latitude', metaDataName)]), dtype='int64')
     nlocs = nlocs_int.item()
@@ -178,7 +177,7 @@ def populate_obs_data(file_obs_data, sensor_name):
     file_obs_data = file_obs_data.rename_vars({"elevation": "elevation1"})
     file_obs_data = file_obs_data.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     file_obs_data = file_obs_data.transpose("Location", "channel")
-    if sensor_name == 'dpr_gpm':
+    if sensor_name == 'GPM-DPR':
         reff_att = file_obs_data.obs_measured.values 
     else:
         reff_att = file_obs_data.ReflectivityAttenuated.values 

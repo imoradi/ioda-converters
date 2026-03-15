@@ -117,11 +117,125 @@ def read_dpr_hdf_file(fname):
 
     return dprdata
 
+def average_dpr_over_fov_scanline(ds,
+                    var_name="ReflectivityAttenuated",
+                    scan_dim="scanline",
+                    fov_dim="fov"):
+
+    ds = ds.copy()
+    # --------------------------------------------------
+    # Replace inf with NaN
+    # --------------------------------------------------
+    ds[var_name] = ds[var_name].where(np.isfinite(ds[var_name]))
+
+    # Block size
+    block_scan = 7
+    block_fov  = 7
+
+    # --------------------------------------------------
+    # Trim so divisible by 7
+    # --------------------------------------------------
+    nscan = (ds.dims[scan_dim] // block_scan) * block_scan
+    nfov  = (ds.dims[fov_dim]  // block_fov)  * block_fov
+
+    ds = ds.isel(
+        {scan_dim: slice(0, nscan),
+         fov_dim:  slice(0, nfov)}
+    )
+
+    # --------------------------------------------------
+    # Coarsen 4D reflectivity
+    # --------------------------------------------------
+    refl_block = ds[var_name].coarsen(
+        {scan_dim: block_scan,
+         fov_dim:  block_fov},
+        boundary="trim"
+    )
+
+    refl_mean = refl_block.mean(skipna=True)
+    refl_std  = refl_block.std(skipna=True)
+
+    # --------------------------------------------------
+    # Coarsen 2D variables (lat/lon)
+    # --------------------------------------------------
+    lat_mean = ds["lat"].coarsen(
+        {scan_dim: block_scan, fov_dim: block_fov},
+        boundary="trim"
+    ).mean(skipna=True)
+
+    lon_mean = ds["lon"].coarsen(
+        {scan_dim: block_scan, fov_dim: block_fov},
+        boundary="trim"
+    ).mean(skipna=True)
+
+    # --------------------------------------------------
+    # Coarsen 3D height
+    # --------------------------------------------------
+    height_mean = ds["height"].coarsen(
+        {scan_dim: block_scan, fov_dim: block_fov},
+        boundary="trim"
+    ).mean(skipna=True)
+
+    # --------------------------------------------------
+    # Coarsen scanline-only variable
+    # --------------------------------------------------
+    epoch_mean = ds["epoch_time"].coarsen(
+        {scan_dim: block_scan},
+        boundary="trim"
+    ).mean(skipna=True)
+
+    # --------------------------------------------------
+    # Coarsen angle variables
+    # --------------------------------------------------
+    zenith_mean = ds["zenith_angle"].coarsen(
+        {scan_dim: block_scan, fov_dim: block_fov},
+        boundary="trim"
+    ).mean(skipna=True)
+
+    azimuth_mean = ds["azimuth_angle"].coarsen(
+        {scan_dim: block_scan, fov_dim: block_fov},
+        boundary="trim"
+    ).mean(skipna=True)
+
+    # --------------------------------------------------
+    # Build new dataset
+    # --------------------------------------------------
+    ds_out = xr.Dataset()
+
+    ds_out["ReflectivityAttenuated"] = refl_mean
+    ds_out["ReflectivityAttenuated_STD"] = refl_std
+
+    ds_out["lat"] = lat_mean
+    ds_out["lon"] = lon_mean
+    ds_out["height"] = height_mean
+    ds_out["epoch_time"] = epoch_mean
+    ds_out["zenith_angle"] = zenith_mean
+    ds_out["azimuth_angle"] = azimuth_mean
+    ds_out['fov1'] = ds_out['fov'].copy()
+
+    # Copy static variables
+    ds_out["centerFreq"] = ds["centerFreq"]
+    ds_out["centerWN"]   = ds["centerWN"]
+
+    # Preserve coordinates
+    ds_out = ds_out.assign_coords({
+        scan_dim: refl_mean[scan_dim],
+        fov_dim:  refl_mean[fov_dim],
+        "elevation": ds["elevation"],
+        "channel": ds["channel"]
+    })
+
+    # Preserve attributes
+    ds_out["ReflectivityAttenuated"].attrs = ds[var_name].attrs
+    ds_out["ReflectivityAttenuated_STD"].attrs = ds[var_name].attrs.copy()
+    ds_out["ReflectivityAttenuated_STD"].attrs["description"] = \
+        "Standard deviation of 7x7 averaged reflectivity"
+
+    return ds_out
 
 def read_dpr_gpm(fname, seqNumber_offset=None):
-
     dpr_data = read_dpr_hdf_file(fname)
-
+    dpr_data = average_dpr_over_fov_scanline(dpr_data)
     # combine geovar is used to combine DPR with precipitation retrievals from DPR
     dpr_data = dpr_data.stack(obs_id=('scanline', 'fov')).reset_index('obs_id')
     dpr_data = dpr_data.transpose('obs_id', 'channel', 'elevation')

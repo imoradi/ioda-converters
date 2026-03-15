@@ -219,7 +219,7 @@ def populate_obs_data(file_obs_data, sensor_name):
     # have to reorder the channel axis to be last then merge ( nscans x nspots = nlocs )
     for k in obs_params[sensor_name]:
        obs_data[(k, "ObsValue")] = file_obs_data[k].values.astype(np.float32)
-       obs_data[(k, "ObsError")] = np.full((nobs, nchans), 5.0, dtype='float32')
+       obs_data[(k, "ObsError")] = file_obs_data["ReflectivityAttenuated_STD"].values.astype(np.float32) #np.full((nobs, nchans), 5.0, dtype='float32')
        if f"PreQC_{k}" in file_obs_data:
            preqc = file_obs_data[f"PreQC_{k}"].values.astype('int32')
        else:

@@ -20,7 +20,7 @@ import xarray as xr
 import h5py
 from collections import OrderedDict
 from pyiodaconv.def_jedi_utils import epoch
-
+import pdb
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
@@ -117,21 +117,23 @@ def read_dpr_hdf_file(fname):
 
     return dprdata
 
-def average_dpr_over_fov_scanline(ds,
+def average_dpr_over_fov_scanline(ds_in,
                     var_name="ReflectivityAttenuated",
                     scan_dim="scanline",
-                    fov_dim="fov"):
+                    fov_dim="fov",
+                    dbz_threshold=0 ):
 
-    ds = ds.copy()
+    ds = ds_in.copy()
     # --------------------------------------------------
     # Replace inf with NaN
     # --------------------------------------------------
-    ds[var_name] = ds[var_name].where(np.isfinite(ds[var_name]))
+    mask = np.isfinite(ds[var_name]) & (ds[var_name] >= dbz_threshold)
+    ds = ds.where(mask)
 
     # Block size
     block_scan = 7
     block_fov  = 7
-
+   
     # --------------------------------------------------
     # Trim so divisible by 7
     # --------------------------------------------------
@@ -146,6 +148,7 @@ def average_dpr_over_fov_scanline(ds,
     # --------------------------------------------------
     # Coarsen 4D reflectivity
     # --------------------------------------------------
+    ds[var_name] = 10 ** (ds[var_name] / 10.0)
     refl_block = ds[var_name].coarsen(
         {scan_dim: block_scan,
          fov_dim:  block_fov},
@@ -154,6 +157,9 @@ def average_dpr_over_fov_scanline(ds,
 
     refl_mean = refl_block.mean(skipna=True)
     refl_std  = refl_block.std(skipna=True)
+    dbz_mean = 10 * np.log10(refl_mean)
+    dbz_std = 4.343 * (refl_std / refl_mean)
+    dbz_std = dbz_std.where(dbz_mean > dbz_threshold, 0)
 
     # --------------------------------------------------
     # Coarsen 2D variables (lat/lon)
@@ -202,8 +208,8 @@ def average_dpr_over_fov_scanline(ds,
     # --------------------------------------------------
     ds_out = xr.Dataset()
 
-    ds_out["ReflectivityAttenuated"] = refl_mean
-    ds_out["ReflectivityAttenuated_STD"] = refl_std
+    ds_out["ReflectivityAttenuated"] = dbz_mean
+    ds_out["ReflectivityAttenuated_STD"] = dbz_std
 
     ds_out["lat"] = lat_mean
     ds_out["lon"] = lon_mean

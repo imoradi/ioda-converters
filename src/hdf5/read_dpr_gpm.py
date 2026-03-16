@@ -211,7 +211,7 @@ def average_dpr_over_fov_scanline(ds_in,
 
     ds_out["ReflectivityAttenuated"] = dbz_mean
     ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std
-    ds_out["ReflectivityAttenuated_STD_mm6m3"] = refl_std
+    ds_out["ReflectivityAttenuated_STD_cm6m3"] = refl_std
 
     ds_out["lat"] = lat_mean
     ds_out["lon"] = lon_mean
@@ -235,8 +235,11 @@ def average_dpr_over_fov_scanline(ds_in,
 
     # Preserve attributes
     ds_out["ReflectivityAttenuated"].attrs = ds[var_name].attrs
-    ds_out["ReflectivityAttenuated_STD"].attrs = ds[var_name].attrs.copy()
-    ds_out["ReflectivityAttenuated_STD"].attrs["description"] = \
+    ds_out["ReflectivityAttenuated_STD_dBZ"].attrs = ds[var_name].attrs.copy()
+    ds_out["ReflectivityAttenuated_STD_dBZ"].attrs["description"] = \
+        "Standard deviation of 7x7 averaged reflectivity"
+    ds_out["ReflectivityAttenuated_STD_cm6m3"].attrs = ds[var_name].attrs.copy()
+    ds_out["ReflectivityAttenuated_STD_cm6m3"].attrs["description"] = \
         "Standard deviation of 7x7 averaged reflectivity"
 
     return ds_out

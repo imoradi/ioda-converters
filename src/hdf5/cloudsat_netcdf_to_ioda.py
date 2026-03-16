@@ -138,11 +138,11 @@ def main(args):
 
     for k in obs_params[sensor_name]:
        VarAttrs[(k, 'ObsValue')]['_FillValue'] = float_missing_value
-       VarAttrs[(k, 'ObsError')]['_FillValue'] = float_missing_value
+       VarAttrs[(k, 'ObsError_cm6m3')]['_FillValue'] = float_missing_value
        VarAttrs[(k, 'ObsError_dBZ')]['_FillValue'] = float_missing_value
        VarAttrs[(k, 'PreQC')]['_FillValue'] = int_missing_value
        VarAttrs[(k, 'ObsValue')]['units'] = units[k]
-       VarAttrs[(k, 'ObsError')]['units'] = units[k]
+       VarAttrs[(k, 'ObsError_cm6m3')]['units'] = units[k]
        VarAttrs[(k, 'ObsError_dBZ')]['units'] = units[k]
 
     # final write to IODA file
@@ -221,7 +221,7 @@ def populate_obs_data(file_obs_data, sensor_name):
     # have to reorder the channel axis to be last then merge ( nscans x nspots = nlocs )
     for k in obs_params[sensor_name]:
        obs_data[(k, "ObsValue")] = file_obs_data[k].values.astype(np.float32)
-       obs_data[(k, "ObsError")] = file_obs_data["ReflectivityAttenuated_STD_mm6m3"].values.astype(np.float32) #np.full((nobs, nchans), 5.0, dtype='float32')
+       obs_data[(k, "ObsError_cm6m3")] = file_obs_data["ReflectivityAttenuated_STD_cm6m3"].values.astype(np.float32) #np.full((nobs, nchans), 5.0, dtype='float32')
        obs_data[(k, "ObsError_dBZ")] = file_obs_data["ReflectivityAttenuated_STD_dBZ"].values.astype(np.float32) #np.full((nobs, nchans), 5.0, dtype='float32')
        if f"PreQC_{k}" in file_obs_data:
            preqc = file_obs_data[f"PreQC_{k}"].values.astype('int32')
@@ -249,7 +249,7 @@ def init_obs_loc(sensor_name):
 
     for k in obs_params[sensor_name]:
         obs[(k, "ObsValue")] = []
-        obs[(k, "ObsError")] = []
+        obs[(k, "ObsError_cm6m3")] = []
         obs[(k, "ObsError_dBZ")] = []
         obs[(k, "PreQC")] = []
         

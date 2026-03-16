@@ -41,8 +41,11 @@ CPR_EARTHCARE_WMO_sat_ID = 146
 # parameter
 obs_params = {'CloudSat': ['ReflectivityAttenuated'],
               'EarthCARE-CPR': ['ReflectivityAttenuated', 'DopplerVelocity'],
-              'GPM-DPR': ['ReflectivityAttenuated']}
-units = {'ReflectivityAttenuated' : 'dBZ', 'DopplerVelocity' : 'm/s'}
+              'GPM-DPR': ['ReflectivityAttenuated', 'ReflectivityAttenuated_STD_dBZ', 'ReflectivityAttenuated_STD_cm6m3']}
+units = {'ReflectivityAttenuated' : 'dBZ', 
+         'ReflectivityAttenuated_STD_dBZ': 'dBZ', 
+         'ReflectivityAttenuated_STD_cm6m3' : 'cm**6/m**3', 
+         'DopplerVelocity' : 'm/s'}
 
 locationKeyList = [
     ("latitude", "float"),
@@ -138,12 +141,10 @@ def main(args):
 
     for k in obs_params[sensor_name]:
        VarAttrs[(k, 'ObsValue')]['_FillValue'] = float_missing_value
-       VarAttrs[(k, 'ObsError_cm6m3')]['_FillValue'] = float_missing_value
-       VarAttrs[(k, 'ObsError_dBZ')]['_FillValue'] = float_missing_value
-       VarAttrs[(k, 'PreQC')]['_FillValue'] = int_missing_value
-       VarAttrs[(k, 'ObsValue')]['units'] = units[k]
-       VarAttrs[(k, 'ObsError_cm6m3')]['units'] = units[k]
-       VarAttrs[(k, 'ObsError_dBZ')]['units'] = units[k]
+       #VarAttrs[(k, 'ObsError')]['_FillValue'] = float_missing_value
+       #VarAttrs[(k, 'PreQC')]['_FillValue'] = int_missing_value
+       #VarAttrs[(k, 'ObsValue')]['units'] = units[k]
+       #VarAttrs[(k, 'ObsError')]['units'] = units[k]
 
     # final write to IODA file
     writer.BuildIoda(obs_data, VarDims, VarAttrs, GlobalAttrs)
@@ -221,13 +222,12 @@ def populate_obs_data(file_obs_data, sensor_name):
     # have to reorder the channel axis to be last then merge ( nscans x nspots = nlocs )
     for k in obs_params[sensor_name]:
        obs_data[(k, "ObsValue")] = file_obs_data[k].values.astype(np.float32)
-       obs_data[(k, "ObsError_cm6m3")] = file_obs_data["ReflectivityAttenuated_STD_cm6m3"].values.astype(np.float32) #np.full((nobs, nchans), 5.0, dtype='float32')
-       obs_data[(k, "ObsError_dBZ")] = file_obs_data["ReflectivityAttenuated_STD_dBZ"].values.astype(np.float32) #np.full((nobs, nchans), 5.0, dtype='float32')
-       if f"PreQC_{k}" in file_obs_data:
-           preqc = file_obs_data[f"PreQC_{k}"].values.astype('int32')
-       else:
-           preqc = np.full((nobs, nchans), 0, dtype='int32')
-       obs_data[(k, "PreQC")] = preqc
+       #obs_data[(k, "ObsError")] = np.full((nobs, nchans), 0.0, dtype='float32')
+       #if f"PreQC_{k}" in file_obs_data:
+       #    preqc = file_obs_data[f"PreQC_{k}"].values.astype('int32')
+       #else:
+       #    preqc = np.full((nobs, nchans), 0, dtype='int32')
+       #obs_data[(k, "PreQC")] = preqc
 
     return obs_data
 
@@ -249,9 +249,8 @@ def init_obs_loc(sensor_name):
 
     for k in obs_params[sensor_name]:
         obs[(k, "ObsValue")] = []
-        obs[(k, "ObsError_cm6m3")] = []
-        obs[(k, "ObsError_dBZ")] = []
-        obs[(k, "PreQC")] = []
+        #obs[(k, "ObsError")] = []
+        #obs[(k, "PreQC")] = []
         
     return obs
 

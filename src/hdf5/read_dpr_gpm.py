@@ -160,7 +160,8 @@ def average_dpr_over_fov_scanline(ds_in,
     dbz_mean = 10 * np.log10(refl_mean)
     dbz_std = 4.343 * (refl_std / refl_mean)
     dbz_std = dbz_std.where(dbz_mean > dbz_threshold, 0)
-    cm6m3_std = refl_std * 1e-6
+    refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
+
     # --------------------------------------------------
     # Coarsen 2D variables (lat/lon)
     # --------------------------------------------------
@@ -209,7 +210,8 @@ def average_dpr_over_fov_scanline(ds_in,
     ds_out = xr.Dataset()
 
     ds_out["ReflectivityAttenuated"] = dbz_mean
-    ds_out["ReflectivityAttenuated_STD"] = cm6m3_std #dbz_std
+    ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std
+    ds_out["ReflectivityAttenuated_STD_mm6m3"] = refl_std
 
     ds_out["lat"] = lat_mean
     ds_out["lon"] = lon_mean

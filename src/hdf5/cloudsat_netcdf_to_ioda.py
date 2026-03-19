@@ -80,17 +80,17 @@ def main(args):
 
         if file_is_cpr_cloudsat:
             xrdata = read_cloudsat(file_path)
-            if xrdata.obs_id.size > 0:
+            if xrdata.Location.size > 0:
                file_obs_data.append(xrdata)
             sensor_name = 'CloudSat'
         elif file_is_cpr_earthcare:
             xrdata = read_cpr_earthcare(file_path)
-            if xrdata.obs_id.size > 0:
+            if xrdata.Location.size > 0:
                file_obs_data.append(xrdata)
             sensor_name = 'EarthCARE-CPR'
         elif file_is_dpr_gpm:
             xrdata = read_dpr_gpm(file_path)
-            if xrdata.obs_id.size > 0:
+            if xrdata.Location.size > 0:
                file_obs_data.append(xrdata)
             sensor_name = 'GPM-DPR'
         print(f"Finshed Reading {sensor_name} Obs ...")
@@ -154,38 +154,27 @@ def main(args):
 
 def concat_file_obs_data(file_obs_data, start_date=None, end_date=None): 
 
-    file_obs_data = xr.concat(file_obs_data, dim='obs_id')
+    file_obs_data = xr.concat(file_obs_data, dim='Location')
 
-    keep_obs_ids = np.ones(file_obs_data.obs_id.size, dtype=bool)
+    keep_locations = np.ones(file_obs_data.Location.size, dtype=bool)
     if start_date is not None:
         start_date = datetime.strptime(start_date, "%Y-%m-%d-%H-%M-%S")
         start_date = (np.datetime64(start_date) - np.datetime64(epoch)).astype(np.int64)
         keep_id = file_obs_data.epoch_time.values >= start_date
-        keep_obs_ids = keep_obs_ids[keep_id]
+        keep_locations = keep_locations[keep_id]
 
     if end_date is not None:
         end_date = datetime.strptime(end_date, "%Y-%m-%d-%H-%M-%S")
         end_date = (np.datetime64(end_date) - np.datetime64(epoch)).astype(np.int64)
         keep_id = file_obs_data.epoch_time.values <= start_date
-        keep_obs_ids = keep_obs_ids[keep_id]
+        keep_locations = keep_locations[keep_id]
 
     # only keep obs within the time range
-    file_obs_data = file_obs_data.isel(obs_id=keep_obs_ids)
+    file_obs_data = file_obs_data.isel(Location=keep_locations)
 
     return file_obs_data
 
 def populate_obs_data(file_obs_data, sensor_name):
-
-    # appears to be observation cleansing and conditioning
-    file_obs_data = file_obs_data.rename_vars({"elevation": "elevation1"})
-    file_obs_data = file_obs_data.stack(Location=['obs_id', 'elevation']).reset_index("Location")
-    file_obs_data = file_obs_data.transpose("Location", "channel")
-    reff_att = file_obs_data.ReflectivityAttenuated.values 
-    locid = ( reff_att < -100) | (reff_att > 100) | np.isnan(reff_att) | np.isinf(reff_att)
-    locid = file_obs_data.Location.values[np.sum(locid, axis=1) == 0]
-    file_obs_data = file_obs_data.isel(Location=locid)
-    # end conditioning and cleansing block
-
     # this function will map the cloud radar data in the cpr xarray
     # into a dictionary to be passed to the IODA writer functions
     nobs = file_obs_data.Location.size

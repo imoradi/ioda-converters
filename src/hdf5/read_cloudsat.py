@@ -210,4 +210,12 @@ def read_cloudsat(fname):
 
     cs_data["sequenceNumber"] = xr.DataArray(np.arange(cs_data.obs_id.size), cs_data.obs_id.coords)
 
+    cs_data = cs_data.rename_vars({"elevation": "elevation1"})
+    cs_data = cs_data.stack(Location=['obs_id', 'elevation']).reset_index("Location")
+    cs_data = cs_data.transpose("Location", "channel")
+    reff_att = cs_data.ReflectivityAttenuated
+    valid_mask = (reff_att >= -100) & (reff_att <= 100) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
+    valid_locations = cs_data.Location.values[valid_mask.all(dim="channel")]
+    cs_data = cs_data.sel(Location=valid_locations)
+
     return cs_data

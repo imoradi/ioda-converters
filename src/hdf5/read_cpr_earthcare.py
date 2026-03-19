@@ -131,6 +131,16 @@ def read_cpr_earthcare(fname):
     ecdata['lon'].values = lon
     '''
     ecdata["sequenceNumber"] = xr.DataArray(np.arange(ecdata.obs_id.size), ecdata.obs_id.coords)
-    
+
+
+    ecdata = ecdata.rename_vars({"elevation": "elevation1"})
+    ecdata = ecdata.stack(Location=['obs_id', 'elevation']).reset_index("Location")
+    ecdata = ecdata.transpose("Location", "channel")
+    reff_att = ecdata.ReflectivityAttenuated
+    valid_mask = (reff_att >= -100) & (reff_att <= 100) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
+    valid_locations = ecdata.Location.values[valid_mask.all(dim="channel")]
+    ecdata = ecdata.sel(Location=valid_locations)
+
+
     return ecdata
 

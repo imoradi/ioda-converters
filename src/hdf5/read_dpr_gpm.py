@@ -103,9 +103,19 @@ def read_dpr_hdf_file(fname):
     dprdata['height'] = xr_data['FS/PRE/height']  # "nscan,nray=nfov,nbin=nelev";
     dprdata['epoch_time'] = xr_data['FS/navigation/scLat'].copy()
     dprdata['epoch_time'].values = np.squeeze(epoch_time)
-    dprdata['ReflectivityAttenuated'] = xr_data['FS/PRE/zFactorMeasured']  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
-    dprdata['obs'] = xr_data['FS/SLV/zFactorFinal']  # "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
-    dprdata['obs'].values[dprdata['obs'].values < -100] = np.nan
+    
+    # Copy variables, format "nscan,nray=nfov,nbin=nelev,nfreq=nchan"
+    dprdata['ReflectivityAttenuated'] = xr_data['FS/PRE/zFactorMeasured'].copy()
+    dprdata['obs'] = xr_data['FS/SLV/zFactorFinal'].copy()
+
+    # Replace invalid obs values with NaN
+    dprdata['obs'] = dprdata['obs'].where(dprdata['obs'] >= -100)
+    # Make ReflectivityAttenuated NaN wherever obs is NaN
+    dprdata['ReflectivityAttenuated'] = (
+               dprdata['ReflectivityAttenuated']
+               .where(~np.isnan(dprdata['obs']))
+    )
+
     dprdata['zenith_angle'] = xr_data['FS/PRE/localZenithAngle']  # nscan,nray=nfov,nfreq=nchan
     dprdata['azimuth_angle'] = dprdata['zenith_angle'].copy() * 0
     dprdata['centerFreq'] = xr.DataArray(np.array([13.6, 35.5]), dims={"nfreq": 2})  # GHz
@@ -148,31 +158,54 @@ def average_dpr_over_fov_scanline(ds_in,
     # --------------------------------------------------
     # Coarsen 4D reflectivity
     # --------------------------------------------------
+    refl_block = ds[var_name].coarsen(
+        {scan_dim: block_scan,
+         fov_dim:  block_fov},
+        boundary="exact"
+    )
+    dbz_std = refl_block.std(skipna=True)
+    
     ds[var_name] = 10 ** (ds[var_name] / 10.0)
     refl_block = ds[var_name].coarsen(
         {scan_dim: block_scan,
          fov_dim:  block_fov},
-        boundary="trim"
+        boundary="exact"
     )
-
     refl_mean = refl_block.mean(skipna=True)
-    refl_std  = refl_block.std(skipna=True)
     dbz_mean = 10 * np.log10(refl_mean)
-    dbz_std = 4.343 * (refl_std / refl_mean)
-    dbz_std = dbz_std.where(dbz_mean > dbz_threshold, 0)
+    refl_std  = refl_block.std(skipna=True)
     refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
+
+    # print data informaiton
+    data = ds[var_name].values[...,0].ravel()
+    
+    # 4. Define bins: 5–10, 10–15, ..., 55–80
+    bins = list(range(5, 60, 5)) + [80]
+
+    # 5. Compute histogram
+    hist, edges = np.histogram(data, bins=bins)
+
+    # 6. Print counts per bin
+    for i in range(len(hist)):
+       print(f"{edges[i]}–{edges[i+1]}: {hist[i]}")
+
+    # this is not used but for checking only
+    obs_mean = ds["obs"].coarsen(
+        {scan_dim: block_scan, fov_dim: block_fov},
+        boundary="exact"
+    ).mean(skipna=True)
 
     # --------------------------------------------------
     # Coarsen 2D variables (lat/lon)
     # --------------------------------------------------
     lat_mean = ds["lat"].coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="trim"
+        boundary="exact"
     ).mean(skipna=True)
 
     lon_mean = ds["lon"].coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="trim"
+        boundary="exact"
     ).mean(skipna=True)
 
     # --------------------------------------------------
@@ -180,7 +213,7 @@ def average_dpr_over_fov_scanline(ds_in,
     # --------------------------------------------------
     height_mean = ds["height"].coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="trim"
+        boundary="exact"
     ).mean(skipna=True)
 
     # --------------------------------------------------
@@ -188,7 +221,7 @@ def average_dpr_over_fov_scanline(ds_in,
     # --------------------------------------------------
     epoch_mean = ds["epoch_time"].coarsen(
         {scan_dim: block_scan},
-        boundary="trim"
+        boundary="exact"
     ).mean(skipna=True)
 
     # --------------------------------------------------
@@ -196,12 +229,12 @@ def average_dpr_over_fov_scanline(ds_in,
     # --------------------------------------------------
     zenith_mean = ds["zenith_angle"].coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="trim"
+        boundary="exact"
     ).mean(skipna=True)
 
     azimuth_mean = ds["azimuth_angle"].coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="trim"
+        boundary="exact"
     ).mean(skipna=True)
 
     # --------------------------------------------------
@@ -213,6 +246,7 @@ def average_dpr_over_fov_scanline(ds_in,
     ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std
     ds_out["ReflectivityAttenuated_STD_cm6m3"] = refl_std
 
+    ds_out["obs"] = obs_mean
     ds_out["lat"] = lat_mean
     ds_out["lon"] = lon_mean
     ds_out["height"] = height_mean
@@ -237,10 +271,10 @@ def average_dpr_over_fov_scanline(ds_in,
     ds_out["ReflectivityAttenuated"].attrs = ds[var_name].attrs
     ds_out["ReflectivityAttenuated_STD_dBZ"].attrs = ds[var_name].attrs.copy()
     ds_out["ReflectivityAttenuated_STD_dBZ"].attrs["description"] = \
-        "Standard deviation of 7x7 averaged reflectivity"
+        "Standard deviation of grids in dBZ"
     ds_out["ReflectivityAttenuated_STD_cm6m3"].attrs = ds[var_name].attrs.copy()
     ds_out["ReflectivityAttenuated_STD_cm6m3"].attrs["description"] = \
-        "Standard deviation of 7x7 averaged reflectivity"
+        "Standard deviation of grids in cm^6/m^3"
 
     return ds_out
 
@@ -267,4 +301,12 @@ def read_dpr_gpm(fname, seqNumber_offset=None):
 
     dpr_data["sequenceNumber"] = xr.DataArray(seqNumber_offset + np.arange(dpr_data.obs_id.size), dpr_data.obs_id.coords)
 
+    dpr_data = dpr_data.rename_vars({"elevation": "elevation1"})
+    dpr_data = dpr_data.stack(Location=['obs_id', 'elevation']).reset_index("Location")
+    dpr_data = dpr_data.transpose("Location", "channel")
+    reff_att = dpr_data.ReflectivityAttenuated
+    valid_mask = (reff_att >= -100) & (reff_att <= 100) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
+    valid_locations = dpr_data.Location.values[valid_mask.all(dim="channel")]
+    dpr_data = dpr_data.sel(Location=valid_locations)
+    
     return dpr_data

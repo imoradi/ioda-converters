@@ -94,7 +94,7 @@ def main(args):
                file_obs_data.append(xrdata)
             sensor_name = 'GPM-DPR'
         print(f"Finshed Reading {sensor_name} Obs ...")
-
+    
     file_obs_data = concat_file_obs_data(file_obs_data)
 
     # report time

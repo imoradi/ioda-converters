@@ -176,45 +176,21 @@ def average_dpr_over_fov_scanline(ds_in,
     refl_std  = refl_block.std(skipna=True)
     refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
 
-    # print data informaiton
-    data = ds[var_name].values[...,0].ravel()
-    
-    # 4. Define bins: 5–10, 10–15, ..., 55–80
-    bins = list(range(5, 60, 5)) + [80]
-
-    # 5. Compute histogram
-    hist, edges = np.histogram(data, bins=bins)
-
-    # 6. Print counts per bin
-    for i in range(len(hist)):
-       print(f"{edges[i]}–{edges[i+1]}: {hist[i]}")
-
-    # this is not used but for checking only
-    obs_mean = ds["obs"].coarsen(
+    # we cannot just simply average longitudes
+    lon = ds["lon"]
+    lon_rad = np.deg2rad(lon)
+    x = np.cos(lon_rad)
+    y = np.sin(lon_rad)
+    x_mean = x.coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
         boundary="exact"
     ).mean(skipna=True)
 
-    # --------------------------------------------------
-    # Coarsen 2D variables (lat/lon)
-    # --------------------------------------------------
-    lat_mean = ds["lat"].coarsen(
+    y_mean = y.coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
         boundary="exact"
     ).mean(skipna=True)
-
-    lon_mean = ds["lon"].coarsen(
-        {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="exact"
-    ).mean(skipna=True)
-
-    # --------------------------------------------------
-    # Coarsen 3D height
-    # --------------------------------------------------
-    height_mean = ds["height"].coarsen(
-        {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="exact"
-    ).mean(skipna=True)
+    lon_mean = np.rad2deg(np.arctan2(y_mean, x_mean)) % 360
 
     # --------------------------------------------------
     # Coarsen scanline-only variable
@@ -224,18 +200,6 @@ def average_dpr_over_fov_scanline(ds_in,
         boundary="exact"
     ).mean(skipna=True)
 
-    # --------------------------------------------------
-    # Coarsen angle variables
-    # --------------------------------------------------
-    zenith_mean = ds["zenith_angle"].coarsen(
-        {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="exact"
-    ).mean(skipna=True)
-
-    azimuth_mean = ds["azimuth_angle"].coarsen(
-        {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="exact"
-    ).mean(skipna=True)
 
     # --------------------------------------------------
     # Build new dataset
@@ -245,15 +209,18 @@ def average_dpr_over_fov_scanline(ds_in,
     ds_out["ReflectivityAttenuated"] = dbz_mean
     ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std
     ds_out["ReflectivityAttenuated_STD_cm6m3"] = refl_std
-
-    ds_out["obs"] = obs_mean
-    ds_out["lat"] = lat_mean
     ds_out["lon"] = lon_mean
-    ds_out["height"] = height_mean
     ds_out["epoch_time"] = epoch_mean
-    ds_out["zenith_angle"] = zenith_mean
-    ds_out["azimuth_angle"] = azimuth_mean
-    ds_out['fov1'] = ds_out['fov'].copy()
+
+    for k in ds:
+        if k in ['ReflectivityAttenuated', 'lon', "epoch_time"]:
+            continue
+        k_mean = ds[k].coarsen(
+               {scan_dim: block_scan, fov_dim: block_fov},
+               boundary="exact"
+        ).mean(skipna=True)
+
+        ds_out[k] = k_mean
 
     # Copy static variables
     ds_out["centerFreq"] = ds["centerFreq"]
@@ -280,24 +247,21 @@ def average_dpr_over_fov_scanline(ds_in,
 
 def read_dpr_gpm(fname, seqNumber_offset=None):
     dpr_data = read_dpr_hdf_file(fname)
+    dpr_data['lon'] = dpr_data['lon'] % 360 # convert to 0-360
+
     dpr_data = average_dpr_over_fov_scanline(dpr_data)
     # combine geovar is used to combine DPR with precipitation retrievals from DPR
     dpr_data = dpr_data.stack(obs_id=('scanline', 'fov')).reset_index('obs_id')
     dpr_data = dpr_data.transpose('obs_id', 'channel', 'elevation')
 
-    # convert to jd/lev/lat/lon
-    lon = dpr_data['lon'].values
-    lon[lon < 0] = 360 + lon[lon < 0]
-    dpr_data['lon'].values = lon
-
     # increment channel coordinate to start at 1
     dpr_data = dpr_data.assign_coords(channel=dpr_data['channel'] + 1)
-
-    atime = np.min(dpr_data['epoch_time'])
-    atime_obj = datetime.utcfromtimestamp(atime.item())
-    # this will use hour and minute to offset files in serial processing
-    if not seqNumber_offset:
-        seqNumber_offset = 100000*int(atime_obj.strftime('%H%M'))
+    if dpr_data.obs_id.size > 0:
+        atime = np.min(dpr_data['epoch_time'])
+        atime_obj = datetime.utcfromtimestamp(atime.item())
+        # this will use hour and minute to offset files in serial processing
+        if not seqNumber_offset:
+            seqNumber_offset = 100000*int(atime_obj.strftime('%H%M'))
 
     dpr_data["sequenceNumber"] = xr.DataArray(seqNumber_offset + np.arange(dpr_data.obs_id.size), dpr_data.obs_id.coords)
 

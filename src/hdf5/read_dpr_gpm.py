@@ -20,7 +20,6 @@ import xarray as xr
 import h5py
 from collections import OrderedDict
 from pyiodaconv.def_jedi_utils import epoch
-import pdb
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
@@ -92,7 +91,7 @@ def read_dpr_hdf_file(fname):
                          xr_data['FS/ScanTime/Hour'].values[iscan],
                          xr_data['FS/ScanTime/Minute'].values[iscan],
                          xr_data['FS/ScanTime/Second'].values[iscan],
-                         xr_data['FS/ScanTime/MilliSecond'].values[iscan])
+                         1000 * int(xr_data['FS/ScanTime/MilliSecond'].values[iscan]))
         time1 = time1.replace(tzinfo=timezone.utc)
         epoch_time[iscan] = round((time1 - epoch).total_seconds())
 
@@ -116,7 +115,8 @@ def read_dpr_hdf_file(fname):
                .where(~np.isnan(dprdata['obs']))
     )
 
-    dprdata['zenith_angle'] = xr_data['FS/PRE/localZenithAngle']  # nscan,nray=nfov,nfreq=nchan
+    # nscan,nray=nfov,nfreq=nchan; Ku and Ka look the same way, keep Ku so the angle is one value per location
+    dprdata['zenith_angle'] = xr_data['FS/PRE/localZenithAngle'].isel(nfreq=0)
     dprdata['azimuth_angle'] = dprdata['zenith_angle'].copy() * 0
     dprdata['centerFreq'] = xr.DataArray(np.array([13.6, 35.5]), dims={"nfreq": 2})  # GHz
     dprdata['centerWN'] = xr.DataArray(np.array([0.453, 1.183]), dims={"nfreq": 2})  # 1/cm
@@ -135,10 +135,16 @@ def average_dpr_over_fov_scanline(ds_in,
 
     ds = ds_in.copy()
     # --------------------------------------------------
-    # Replace inf with NaN
+    # Replace inf and values below the threshold with NaN, only in the
+    # reflectivity fields (scanline, fov, elevation, channel). Applying the
+    # mask to the whole dataset would broadcast elevation and channel onto
+    # lat, lon, height and epoch_time, and the IODA writer would then
+    # flatten those 2-D arrays and misplace every record.
     # --------------------------------------------------
     mask = np.isfinite(ds[var_name]) & (ds[var_name] >= dbz_threshold)
-    ds = ds.where(mask)
+    for k in ds.data_vars:
+        if set(mask.dims).issubset(ds[k].dims):
+            ds[k] = ds[k].where(mask)
 
     # Block size
     block_scan = 7
@@ -215,10 +221,13 @@ def average_dpr_over_fov_scanline(ds_in,
     for k in ds:
         if k in ['ReflectivityAttenuated', 'lon', "epoch_time"]:
             continue
-        k_mean = ds[k].coarsen(
-               {scan_dim: block_scan, fov_dim: block_fov},
-               boundary="exact"
-        ).mean(skipna=True)
+        # average over the block dimensions the variable has (fov1 has only fov);
+        # variables with neither (e.g. centerFreq) are copied below
+        window = {dim: size for dim, size in ((scan_dim, block_scan), (fov_dim, block_fov))
+                  if dim in ds[k].dims}
+        if not window:
+            continue
+        k_mean = ds[k].coarsen(window, boundary="exact").mean(skipna=True)
 
         ds_out[k] = k_mean
 
@@ -272,5 +281,11 @@ def read_dpr_gpm(fname, seqNumber_offset=None):
     valid_mask = (reff_att >= -100) & (reff_att <= 100) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
     valid_locations = dpr_data.Location.values[valid_mask.all(dim="channel")]
     dpr_data = dpr_data.sel(Location=valid_locations)
-    
+
+    # every variable except the observations must have one value per Location
+    for k in ['lat', 'lon', 'height', 'epoch_time', 'zenith_angle', 'azimuth_angle', 'sequenceNumber',
+              'fov1', 'elevation1']:
+        if dpr_data[k].dims != ('Location',):
+            raise ValueError(f"read_dpr_gpm: {k} has dimensions {dpr_data[k].dims}, expected ('Location',)")
+
     return dpr_data

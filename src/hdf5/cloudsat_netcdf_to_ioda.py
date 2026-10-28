@@ -160,14 +160,12 @@ def concat_file_obs_data(file_obs_data, start_date=None, end_date=None):
     if start_date is not None:
         start_date = datetime.strptime(start_date, "%Y-%m-%d-%H-%M-%S")
         start_date = (np.datetime64(start_date) - np.datetime64(epoch)).astype(np.int64)
-        keep_id = file_obs_data.epoch_time.values >= start_date
-        keep_locations = keep_locations[keep_id]
+        keep_locations &= file_obs_data.epoch_time.values >= start_date
 
     if end_date is not None:
         end_date = datetime.strptime(end_date, "%Y-%m-%d-%H-%M-%S")
         end_date = (np.datetime64(end_date) - np.datetime64(epoch)).astype(np.int64)
-        keep_id = file_obs_data.epoch_time.values <= start_date
-        keep_locations = keep_locations[keep_id]
+        keep_locations &= file_obs_data.epoch_time.values <= end_date
 
     # only keep obs within the time range
     file_obs_data = file_obs_data.isel(Location=keep_locations)
@@ -207,6 +205,15 @@ def populate_obs_data(file_obs_data, sensor_name):
     obs_data[('dateTime', metaDataName)] = file_obs_data.epoch_time.values.astype(np.int64)
 
     obs_data[('sequenceNumber', metaDataName)] = file_obs_data.sequenceNumber.values.astype(np.int32)
+
+    # every MetaData variable must have one value per location (or per channel); a 2-D array here would be
+    # flattened by the writer and misplace the records
+    for (name, group), values in obs_data.items():
+        if group != metaDataName or name in ('sensorChannelNumber', 'sensorCentralFrequency',
+                                              'sensorCentralWavenumber'):
+            continue
+        if np.ndim(values) != 1 or len(values) != nobs:
+            raise ValueError(f"{name} has shape {np.shape(values)}, expected ({nobs},)")
 
     # have to reorder the channel axis to be last then merge ( nscans x nspots = nlocs )
     for k in obs_params[sensor_name]:

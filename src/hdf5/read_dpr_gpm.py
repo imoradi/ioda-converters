@@ -46,6 +46,7 @@ def is_hdf5(fname):
 
 
 def read_dpr_hdf_file(fname):
+    """GPM 2A.GPM.DPR granule, V07 (HDF5) or V08 (NetCDF-4, same groups and DimensionNames attributes)."""
 
     print(fname)
     df = h5py.File(fname)
@@ -83,23 +84,31 @@ def read_dpr_hdf_file(fname):
             xr_dims[dname] = unique_dims[dname]
         xr_data[k] = xr.DataArray(data[k], dims=xr_dims)
 
-    epoch_time = np.zeros(xr_data.nscan.size)
+    epoch_time = np.full(xr_data.nscan.size, np.nan)
     for iscan in xr_data.nscan.values:
-        time1 = datetime(xr_data['FS/ScanTime/Year'].values[iscan],
-                         xr_data['FS/ScanTime/Month'].values[iscan],
-                         xr_data['FS/ScanTime/DayOfMonth'].values[iscan],
-                         xr_data['FS/ScanTime/Hour'].values[iscan],
-                         xr_data['FS/ScanTime/Minute'].values[iscan],
-                         xr_data['FS/ScanTime/Second'].values[iscan],
-                         1000 * int(xr_data['FS/ScanTime/MilliSecond'].values[iscan]))
+        try:
+            time1 = datetime(int(xr_data['FS/ScanTime/Year'].values[iscan]),
+                             int(xr_data['FS/ScanTime/Month'].values[iscan]),
+                             int(xr_data['FS/ScanTime/DayOfMonth'].values[iscan]),
+                             int(xr_data['FS/ScanTime/Hour'].values[iscan]),
+                             int(xr_data['FS/ScanTime/Minute'].values[iscan]),
+                             int(xr_data['FS/ScanTime/Second'].values[iscan]),
+                             1000 * int(xr_data['FS/ScanTime/MilliSecond'].values[iscan]))
+        except ValueError:
+            continue    # missing scan time (fill value)
         time1 = time1.replace(tzinfo=timezone.utc)
         epoch_time[iscan] = round((time1 - epoch).total_seconds())
 
     # build output dictionary
     dprdata = xr.Dataset()
-    dprdata['lat'] = xr_data['FS/Latitude']       # "nscan,nray=nfov";
-    dprdata['lon'] = xr_data['FS/Longitude']      # "nscan,nray=nfov";
-    dprdata['height'] = xr_data['FS/PRE/height']  # "nscan,nray=nfov,nbin=nelev";
+    # fill values (-9999, -9999.9) become NaN; V08 (NetCDF) stores height as int16 in meters
+    def valid(da):
+        da = da.astype(float)
+        return da.where(da > -9999)
+
+    dprdata['lat'] = valid(xr_data['FS/Latitude'])       # "nscan,nray=nfov";
+    dprdata['lon'] = valid(xr_data['FS/Longitude'])      # "nscan,nray=nfov";
+    dprdata['height'] = valid(xr_data['FS/PRE/height'])  # "nscan,nray=nfov,nbin=nelev";
     dprdata['epoch_time'] = xr_data['FS/navigation/scLat'].copy()
     dprdata['epoch_time'].values = np.squeeze(epoch_time)
     
@@ -116,7 +125,7 @@ def read_dpr_hdf_file(fname):
     )
 
     # nscan,nray=nfov,nfreq=nchan; Ku and Ka look the same way, keep Ku so the angle is one value per location
-    dprdata['zenith_angle'] = xr_data['FS/PRE/localZenithAngle'].isel(nfreq=0)
+    dprdata['zenith_angle'] = valid(xr_data['FS/PRE/localZenithAngle'].isel(nfreq=0))
     dprdata['azimuth_angle'] = dprdata['zenith_angle'].copy() * 0
     dprdata['centerFreq'] = xr.DataArray(np.array([13.6, 35.5]), dims={"nfreq": 2})  # GHz
     dprdata['centerWN'] = xr.DataArray(np.array([0.453, 1.183]), dims={"nfreq": 2})  # 1/cm

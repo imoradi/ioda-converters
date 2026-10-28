@@ -15,7 +15,7 @@ import sys
 import netCDF4 as nc
 import numpy as np
 import xarray as xr
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pyiodaconv.ioda_conv_engines as iconv
 from pyiodaconv.orddicts import DefaultOrderedDict
@@ -95,7 +95,8 @@ def main(args):
             sensor_name = 'GPM-DPR'
         print(f"Finshed Reading {sensor_name} Obs ...")
     
-    file_obs_data = concat_file_obs_data(file_obs_data)
+    # keep only the observations inside the window (-s/-e), as the granules extend beyond it
+    file_obs_data = concat_file_obs_data(file_obs_data, args.start_date, args.end_date)
 
     # report time
     toc = record_time(tic=tic)
@@ -157,15 +158,14 @@ def concat_file_obs_data(file_obs_data, start_date=None, end_date=None):
     file_obs_data = xr.concat(file_obs_data, dim='Location')
 
     keep_locations = np.ones(file_obs_data.Location.size, dtype=bool)
+    # epoch_time is in seconds since epoch; the window is [start_date, end_date)
     if start_date is not None:
-        start_date = datetime.strptime(start_date, "%Y-%m-%d-%H-%M-%S")
-        start_date = (np.datetime64(start_date) - np.datetime64(epoch)).astype(np.int64)
-        keep_locations &= file_obs_data.epoch_time.values >= start_date
+        start = datetime.strptime(start_date, "%Y-%m-%d-%H-%M-%S").replace(tzinfo=timezone.utc)
+        keep_locations &= file_obs_data.epoch_time.values >= (start - epoch).total_seconds()
 
     if end_date is not None:
-        end_date = datetime.strptime(end_date, "%Y-%m-%d-%H-%M-%S")
-        end_date = (np.datetime64(end_date) - np.datetime64(epoch)).astype(np.int64)
-        keep_locations &= file_obs_data.epoch_time.values <= end_date
+        end = datetime.strptime(end_date, "%Y-%m-%d-%H-%M-%S").replace(tzinfo=timezone.utc)
+        keep_locations &= file_obs_data.epoch_time.values < (end - epoch).total_seconds()
 
     # only keep obs within the time range
     file_obs_data = file_obs_data.isel(Location=keep_locations)

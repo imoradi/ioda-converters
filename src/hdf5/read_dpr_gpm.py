@@ -151,7 +151,7 @@ def average_dpr_over_fov_scanline(ds_in,
                     var_name="ReflectivityAttenuated",
                     scan_dim="scanline",
                     fov_dim="fov",
-                    dbz_threshold=0 ):
+                    dbz_threshold=15 ):
 
     ds = ds_in.copy()
     # --------------------------------------------------
@@ -206,7 +206,9 @@ def average_dpr_over_fov_scanline(ds_in,
     refl_mean = refl_block.mean(skipna=True)
     with np.errstate(divide='ignore'):
         dbz_mean = 10 * np.log10(refl_mean)
-    dbz_mean = dbz_mean.where(dbz_mean >= dbz_threshold)    # no echo, or too weak once averaged
+    # dbz_threshold (15 dBZ, Ku and Ka) applies twice: footprints below it count as no echo, and
+    # block means below it are dropped
+    dbz_mean = dbz_mean.where(dbz_mean >= dbz_threshold)
     refl_std  = refl_block.std(skipna=True)
     refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
 

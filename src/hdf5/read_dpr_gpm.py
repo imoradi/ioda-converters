@@ -206,9 +206,9 @@ def average_dpr_over_fov_scanline(ds_in,
     refl_mean = refl_block.mean(skipna=True)
     with np.errstate(divide='ignore'):
         dbz_mean = 10 * np.log10(refl_mean)
-    # dbz_threshold (15 dBZ, Ku and Ka) applies twice: footprints below it count as no echo, and
-    # block means below it are dropped
-    dbz_mean = dbz_mean.where(dbz_mean >= dbz_threshold)
+    # dbz_threshold (15 dBZ, Ku and Ka) applies to the footprints only: footprints below it count
+    # as no echo. Every block mean is kept, except blocks with no echo at all (mean 0, -inf dBZ)
+    dbz_mean = dbz_mean.where(np.isfinite(dbz_mean))
     refl_std  = refl_block.std(skipna=True)
     refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
 

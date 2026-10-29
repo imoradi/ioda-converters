@@ -131,6 +131,9 @@ def read_dpr_hdf_file(fname):
                dprdata['ReflectivityAttenuated']
                .where(bin_number <= clutter_free_bottom)
     )
+    # bins that were measured (above the clutter-free bottom of a valid footprint): where these have
+    # no echo they count as zero reflectivity in the block (area) mean
+    dprdata['measured'] = (bin_number <= clutter_free_bottom) & dprdata['lat'].notnull()
 
     # nscan,nray=nfov,nfreq=nchan; Ku and Ka look the same way, keep Ku so the angle is one value per location
     dprdata['zenith_angle'] = valid(xr_data['FS/PRE/localZenithAngle'].isel(nfreq=0))
@@ -162,6 +165,8 @@ def average_dpr_over_fov_scanline(ds_in,
     for k in ds.data_vars:
         if set(mask.dims).issubset(ds[k].dims):
             ds[k] = ds[k].where(mask)
+    measured = ds['measured']
+    ds = ds.drop_vars('measured')
 
     # Block size
     block_scan = 7
@@ -188,14 +193,20 @@ def average_dpr_over_fov_scanline(ds_in,
     )
     dbz_std = refl_block.std(skipna=True)
     
-    ds[var_name] = 10 ** (ds[var_name] / 10.0)
+    # area mean in linear units over the measured footprints of the block: a footprint without
+    # echo in a bin counts as zero, so a block with a few raining footprints gets a weak mean
+    # (the mean over the raining footprints only would overstate the rain area and intensity)
+    measured = measured.isel({scan_dim: slice(0, nscan), fov_dim: slice(0, nfov)})
+    ds[var_name] = (10 ** (ds[var_name] / 10.0)).fillna(0).where(measured)
     refl_block = ds[var_name].coarsen(
         {scan_dim: block_scan,
          fov_dim:  block_fov},
         boundary="exact"
     )
     refl_mean = refl_block.mean(skipna=True)
-    dbz_mean = 10 * np.log10(refl_mean)
+    with np.errstate(divide='ignore'):
+        dbz_mean = 10 * np.log10(refl_mean)
+    dbz_mean = dbz_mean.where(dbz_mean >= dbz_threshold)    # no echo, or too weak once averaged
     refl_std  = refl_block.std(skipna=True)
     refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
 

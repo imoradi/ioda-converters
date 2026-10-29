@@ -123,6 +123,14 @@ def read_dpr_hdf_file(fname):
                dprdata['ReflectivityAttenuated']
                .where(~np.isnan(dprdata['obs']))
     )
+    # Drop the bins below the lowest clutter-free bin: there zFactorFinal is filled down to the
+    # surface, but zFactorMeasured is ground clutter (50-80 dBZ). binClutterFreeBottom is 1-based.
+    clutter_free_bottom = xr_data['FS/PRE/binClutterFreeBottom']
+    bin_number = xr.DataArray(np.arange(1, dprdata.sizes['nbin'] + 1), dims='nbin')
+    dprdata['ReflectivityAttenuated'] = (
+               dprdata['ReflectivityAttenuated']
+               .where(bin_number <= clutter_free_bottom)
+    )
 
     # nscan,nray=nfov,nfreq=nchan; Ku and Ka look the same way, keep Ku so the angle is one value per location
     dprdata['zenith_angle'] = valid(xr_data['FS/PRE/localZenithAngle'].isel(nfreq=0))

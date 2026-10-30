@@ -169,11 +169,11 @@ def average_dpr_over_fov_scanline(ds_in,
     ds = ds.drop_vars('measured')
 
     # Block size
-    block_scan = 7
-    block_fov  = 7
+    block_scan = 5
+    block_fov  = 5
    
     # --------------------------------------------------
-    # Trim so divisible by 7
+    # Trim so divisible by the block size (5x5 footprints, about 25 km)
     # --------------------------------------------------
     nscan = (ds.dims[scan_dim] // block_scan) * block_scan
     nfov  = (ds.dims[fov_dim]  // block_fov)  * block_fov

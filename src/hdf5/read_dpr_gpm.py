@@ -173,10 +173,12 @@ def average_dpr_over_fov_scanline(ds_in,
     block_fov  = 5
    
     # --------------------------------------------------
-    # Trim so divisible by the block size (5x5 footprints, about 25 km)
+    # Trim the scans so they divide by the block size (5x5 footprints, about 25 km). Across track
+    # nothing is dropped: the 49 rays give 9 blocks of 5 and a last block of the 4 edge rays
+    # (coarsen pads it, and the means skip the padding)
     # --------------------------------------------------
     nscan = (ds.dims[scan_dim] // block_scan) * block_scan
-    nfov  = (ds.dims[fov_dim]  // block_fov)  * block_fov
+    nfov  = ds.dims[fov_dim]
 
     ds = ds.isel(
         {scan_dim: slice(0, nscan),
@@ -189,7 +191,7 @@ def average_dpr_over_fov_scanline(ds_in,
     refl_block = ds[var_name].coarsen(
         {scan_dim: block_scan,
          fov_dim:  block_fov},
-        boundary="exact"
+        boundary="pad"
     )
     dbz_std = refl_block.std(skipna=True)
     
@@ -201,7 +203,7 @@ def average_dpr_over_fov_scanline(ds_in,
     refl_block = ds[var_name].coarsen(
         {scan_dim: block_scan,
          fov_dim:  block_fov},
-        boundary="exact"
+        boundary="pad"
     )
     refl_mean = refl_block.mean(skipna=True)
     with np.errstate(divide='ignore'):
@@ -219,12 +221,12 @@ def average_dpr_over_fov_scanline(ds_in,
     y = np.sin(lon_rad)
     x_mean = x.coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="exact"
+        boundary="pad"
     ).mean(skipna=True)
 
     y_mean = y.coarsen(
         {scan_dim: block_scan, fov_dim: block_fov},
-        boundary="exact"
+        boundary="pad"
     ).mean(skipna=True)
     lon_mean = np.rad2deg(np.arctan2(y_mean, x_mean)) % 360
 
@@ -233,7 +235,7 @@ def average_dpr_over_fov_scanline(ds_in,
     # --------------------------------------------------
     epoch_mean = ds["epoch_time"].coarsen(
         {scan_dim: block_scan},
-        boundary="exact"
+        boundary="pad"
     ).mean(skipna=True)
 
 
@@ -257,7 +259,7 @@ def average_dpr_over_fov_scanline(ds_in,
                   if dim in ds[k].dims}
         if not window:
             continue
-        k_mean = ds[k].coarsen(window, boundary="exact").mean(skipna=True)
+        k_mean = ds[k].coarsen(window, boundary="pad").mean(skipna=True)
 
         ds_out[k] = k_mean
 

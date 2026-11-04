@@ -99,7 +99,10 @@ def read_cpr_earthcare(fname):
         ecdata['quality_flag'] =  data['quality_flag_1km'] #rayQualityFlag']
     if 'surfaceBinNumber' in ecdata:
         # L1b: average about 25 km along the track (as for GPM DPR)
-        ecdata = average_cpr_along_track(ecdata, fname, profile_seconds(time1))
+        # length of the blocks in km (CPR_AVERAGE_KM, default 25): an odd number of profiles 0.49 km apart
+        km = float(os.environ.get("CPR_AVERAGE_KM", "25"))
+        nprof = int(round(km / 0.49)) // 2 * 2 + 1
+        ecdata = average_cpr_along_track(ecdata, fname, profile_seconds(time1), nprof=nprof)
 
     ecdata['zenith_angle'] = ecdata['obs_id'].copy() * 0.0
     ecdata['azimuth_angle'] = ecdata['obs_id'].copy() * 0.0

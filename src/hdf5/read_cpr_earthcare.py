@@ -128,8 +128,8 @@ def read_cpr_earthcare(fname):
     ecdata = ecdata.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     ecdata = ecdata.transpose("Location", "channel")
     reff_att = ecdata.ReflectivityAttenuated
-    # keep -30 to 70 dBZ (below -30 is mostly noise)
-    valid_mask = (reff_att >= -30) & (reff_att <= 70) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
+    # keep -35 to 40 dBZ (below -35 is mostly noise)
+    valid_mask = (reff_att >= -35) & (reff_att <= 40) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
     valid_locations = ecdata.Location.values[valid_mask.all(dim="channel")]
     ecdata = ecdata.sel(Location=valid_locations)
 

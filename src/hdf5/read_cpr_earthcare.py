@@ -97,6 +97,10 @@ def read_cpr_earthcare(fname):
         ecdata['rangeBinValidNumber'] = data['rangeBinValidNumber']
     else: 
         ecdata['quality_flag'] =  data['quality_flag_1km'] #rayQualityFlag']
+    if 'surfaceBinNumber' in ecdata:
+        # L1b: average about 25 km along the track (as for GPM DPR)
+        ecdata = average_cpr_along_track(ecdata, fname, profile_seconds(time1))
+
     ecdata['zenith_angle'] = ecdata['obs_id'].copy() * 0.0
     ecdata['azimuth_angle'] = ecdata['obs_id'].copy() * 0.0
     ecdata['fov1'] = ecdata['obs_id'].copy() * 0.0
@@ -128,11 +132,87 @@ def read_cpr_earthcare(fname):
     ecdata = ecdata.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     ecdata = ecdata.transpose("Location", "channel")
     reff_att = ecdata.ReflectivityAttenuated
-    # keep -35 to 40 dBZ (below -35 is mostly noise)
-    valid_mask = (reff_att >= -35) & (reff_att <= 40) & (~np.isnan(reff_att)) & (~np.isinf(reff_att))
+    # the -35 to 40 dBZ range applies to the profiles before averaging (average_cpr_along_track);
+    # every block mean is kept
+    valid_mask = (~np.isnan(reff_att)) & (~np.isinf(reff_att))
     valid_locations = ecdata.Location.values[valid_mask.all(dim="channel")]
     ecdata = ecdata.sel(Location=valid_locations)
 
 
     return ecdata
 
+
+
+def profile_seconds(time1):
+    """Profile times in seconds since 1970 (float, so that the overlap with the previous granule can be found)."""
+    return ((time1.values - np.datetime64(epoch)) / np.timedelta64(1, "s")).astype(np.float64)
+
+
+def previous_granule_end(fname):
+    """Time of the last profile of the granule before fname (same or previous day folder), or None."""
+    day = os.path.dirname(fname)
+    try:
+        d = datetime.strptime("/".join(day.split("/")[-3:]), "%Y/%m/%d")
+        prev_day = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(day))),
+                                (d - np.timedelta64(1, "D").astype(object)).strftime("%Y/%m/%d"))
+    except ValueError:
+        prev_day = day
+    pattern = os.path.basename(fname)[:18] + "*.h5"
+    files = sorted(set(glob(os.path.join(day, pattern)) + glob(os.path.join(prev_day, pattern))),
+                   key=os.path.basename)
+    names = [os.path.basename(f) for f in files]
+    if os.path.basename(fname) not in names:
+        return None
+    i = names.index(os.path.basename(fname))
+    if i == 0:
+        return None
+    geo = xr.open_dataset(files[i - 1], group='ScienceData/Geo')
+    return profile_seconds(geo['profileTime'])[-1]
+
+
+def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-35.0, 40.0)):
+    """
+    Average blocks of nprof consecutive profiles (51 profiles about 0.49 km apart, about 25 km)
+    at each range bin; the vertical resolution is kept.
+    - profiles repeated from the previous granule (consecutive granules overlap by about 56
+      profiles) are left out
+    - bins outside dbz_range count as no echo (zero in the linear-Z mean); bins at and below the
+      surface bin are not used; the block mean is not cut
+    - latitude, longitude and time are those of the middle profile; the bin heights are block means
+    - blocks with no echo in a bin give no value there
+    """
+    keep = np.ones(tsec.size, bool)
+    tprev = previous_granule_end(fname)
+    if tprev is not None:
+        keep = tsec > tprev + 1e-3
+    ec = ec.isel(obs_id=np.where(keep)[0])
+    nb = (ec.obs_id.size // nprof) * nprof
+    if nb == 0:
+        return ec.isel(obs_id=slice(0, 0))
+    ec = ec.isel(obs_id=slice(0, nb))
+    nblk = nb // nprof
+    nlev = ec.elevation.size
+    dbz = ec['ReflectivityAttenuated'].values.astype(np.float64)
+    height = ec['height'].values.astype(np.float64)
+    height[np.abs(height) > 1e30] = np.nan
+    sbin = ec['surfaceBinNumber'].values
+    above = np.arange(nlev)[None, :] < sbin[:, None]          # bins above the surface
+    inrange = np.isfinite(dbz) & (dbz >= dbz_range[0]) & (dbz <= dbz_range[1])
+    zlin = np.where(inrange, 10 ** (dbz / 10.0), 0.0)
+    zlin[~above | ~np.isfinite(height)] = np.nan
+    zmean = np.nanmean(zlin.reshape(nblk, nprof, nlev), axis=1)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        dbz_mean = 10 * np.log10(zmean)
+    dbz_mean[~np.isfinite(dbz_mean)] = np.nan
+    hmean = np.nanmean(np.where(np.isfinite(zlin), height, np.nan).reshape(nblk, nprof, nlev), axis=1)
+    dop = ec['DopplerVelocity'].values.astype(np.float64)
+    dop = np.where(inrange & np.isfinite(zlin), dop, np.nan)
+    dop_mean = np.nanmean(dop.reshape(nblk, nprof, nlev), axis=1)
+    mid = np.arange(nblk) * nprof + nprof // 2
+
+    out = ec.isel(obs_id=mid)
+    out = out.assign_coords(obs_id=np.arange(nblk))
+    out['ReflectivityAttenuated'] = (('obs_id', 'elevation'), dbz_mean.astype(np.float32))
+    out['height'] = (('obs_id', 'elevation'), hmean.astype(np.float32))
+    out['DopplerVelocity'] = (('obs_id', 'elevation'), dop_mean.astype(np.float32))
+    return out

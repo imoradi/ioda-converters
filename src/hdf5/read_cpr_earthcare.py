@@ -132,8 +132,7 @@ def read_cpr_earthcare(fname):
     ecdata = ecdata.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     ecdata = ecdata.transpose("Location", "channel")
     reff_att = ecdata.ReflectivityAttenuated
-    # the -35 to 40 dBZ range applies to the profiles before averaging (average_cpr_along_track);
-    # every block mean is kept
+    # the -35 to 40 dBZ range is applied in average_cpr_along_track
     valid_mask = (~np.isnan(reff_att)) & (~np.isinf(reff_att))
     valid_locations = ecdata.Location.values[valid_mask.all(dim="channel")]
     ecdata = ecdata.sel(Location=valid_locations)
@@ -177,7 +176,7 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-35.0, 40.0)):
     - profiles repeated from the previous granule (consecutive granules overlap by about 56
       profiles) are left out
     - bins outside dbz_range count as no echo (zero in the linear-Z mean); bins at and below the
-      surface bin are not used; the block mean is not cut
+      surface bin are not used; block means below dbz_range[0] are dropped
     - latitude, longitude and time are those of the middle profile; the bin heights are block means
     - blocks with no echo in a bin give no value there
     """
@@ -203,7 +202,8 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-35.0, 40.0)):
     zmean = np.nanmean(zlin.reshape(nblk, nprof, nlev), axis=1)
     with np.errstate(divide='ignore', invalid='ignore'):
         dbz_mean = 10 * np.log10(zmean)
-    dbz_mean[~np.isfinite(dbz_mean)] = np.nan
+    # block means below dbz_range[0] (weak means from scattered noise bins) are dropped too
+    dbz_mean[~np.isfinite(dbz_mean) | (dbz_mean < dbz_range[0])] = np.nan
     hmean = np.nanmean(np.where(np.isfinite(zlin), height, np.nan).reshape(nblk, nprof, nlev), axis=1)
     dop = ec['DopplerVelocity'].values.astype(np.float64)
     dop = np.where(inrange & np.isfinite(zlin), dop, np.nan)

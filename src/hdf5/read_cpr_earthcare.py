@@ -132,7 +132,7 @@ def read_cpr_earthcare(fname):
     ecdata = ecdata.stack(Location=['obs_id', 'elevation']).reset_index("Location")
     ecdata = ecdata.transpose("Location", "channel")
     reff_att = ecdata.ReflectivityAttenuated
-    # the -30 to 40 dBZ range is applied in average_cpr_along_track
+    # the -30 to 25 dBZ range is applied in average_cpr_along_track
     valid_mask = (~np.isnan(reff_att)) & (~np.isinf(reff_att))
     valid_locations = ecdata.Location.values[valid_mask.all(dim="channel")]
     ecdata = ecdata.sel(Location=valid_locations)
@@ -169,7 +169,7 @@ def previous_granule_end(fname):
     return profile_seconds(geo['profileTime'])[-1]
 
 
-def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 40.0)):
+def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 25.0)):
     """
     Average blocks of nprof consecutive profiles (51 profiles about 0.49 km apart, about 25 km)
     at each range bin; the vertical resolution is kept.

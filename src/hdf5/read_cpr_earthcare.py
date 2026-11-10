@@ -208,6 +208,15 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 25.0)):
     # block means below dbz_range[0] (weak means from scattered noise bins) are dropped too
     dbz_mean[~np.isfinite(dbz_mean) | (dbz_mean < dbz_range[0])] = np.nan
     hmean = np.nanmean(np.where(np.isfinite(zlin), height, np.nan).reshape(nblk, nprof, nlev), axis=1)
+    # no echo: bins measured (above the surface) in the block whose mean is below dbz_range[0], i.e. clear or
+    # below the detection limit. With CPR_KEEP_NOECHO=1 (default 0) they are kept at dbz_range[0] with
+    # MetaData/noEcho = 1, between CPR_NOECHO_BOTTOM_KM and CPR_NOECHO_TOP_KM (default 1-10 km); bins without a measurement are left out
+    noecho = np.isfinite(zmean) & ~np.isfinite(dbz_mean) & np.isfinite(hmean)
+    noecho &= ((hmean >= float(os.environ.get("CPR_NOECHO_BOTTOM_KM", "1")) * 1000.0)
+               & (hmean <= float(os.environ.get("CPR_NOECHO_TOP_KM", "10")) * 1000.0))
+    if os.environ.get("CPR_KEEP_NOECHO", "0") != "1":
+        noecho[:] = False
+    dbz_mean[noecho] = dbz_range[0]
     dop = ec['DopplerVelocity'].values.astype(np.float64)
     dop = np.where(inrange & np.isfinite(zlin), dop, np.nan)
     dop_mean = np.nanmean(dop.reshape(nblk, nprof, nlev), axis=1)
@@ -218,4 +227,5 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 25.0)):
     out['ReflectivityAttenuated'] = (('obs_id', 'elevation'), dbz_mean.astype(np.float32))
     out['height'] = (('obs_id', 'elevation'), hmean.astype(np.float32))
     out['DopplerVelocity'] = (('obs_id', 'elevation'), dop_mean.astype(np.float32))
+    out['noEcho'] = (('obs_id', 'elevation'), noecho.astype(np.int32))
     return out

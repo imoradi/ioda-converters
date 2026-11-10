@@ -209,6 +209,19 @@ def average_dpr_over_fov_scanline(ds_in,
     # dbz_threshold (15 dBZ, Ku and Ka) applies to the footprints only: footprints below it count
     # as no echo. Every block mean is kept, except blocks with no echo at all (mean 0, -inf dBZ)
     dbz_mean = dbz_mean.where(np.isfinite(dbz_mean))
+    # no echo: bins measured in the block whose mean is zero (no footprint at or above dbz_threshold), i.e.
+    # clear or below the detection limit. With DPR_KEEP_NOECHO=1 (default 0) they are kept at dbz_threshold
+    # between DPR_NOECHO_BOTTOM_KM and DPR_NOECHO_TOP_KM (default 1-10 km); MetaData/noEcho is 1 (Ku), 2 (Ka)
+    # or 3 (both) there. Bins without a measurement stay missing.
+    hblock = ds['height'].coarsen({scan_dim: block_scan, fov_dim: block_fov}, boundary="exact").mean(skipna=True)
+    h_km = hblock / 1000.0 if float(hblock.max()) > 100 else hblock
+    noecho = (np.isfinite(refl_mean) & (refl_mean == 0)
+              & (h_km >= float(os.environ.get("DPR_NOECHO_BOTTOM_KM", "1")))
+              & (h_km <= float(os.environ.get("DPR_NOECHO_TOP_KM", "10"))))
+    if os.environ.get("DPR_KEEP_NOECHO", "0") != "1":
+        noecho = noecho & False
+    dbz_mean = dbz_mean.where(~noecho, float(dbz_threshold))
+    noecho_flag = (noecho.astype(np.int32) * xr.DataArray([1, 2], dims='channel')).sum('channel')
     refl_std  = refl_block.std(skipna=True)
     refl_std = refl_std * 1e-6 # mm^6/m^3 => cm^6/m^3
 
@@ -243,13 +256,14 @@ def average_dpr_over_fov_scanline(ds_in,
     ds_out = xr.Dataset()
 
     ds_out["ReflectivityAttenuated"] = dbz_mean
+    ds_out["noEcho"] = noecho_flag
     ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std
     ds_out["ReflectivityAttenuated_STD_cm6m3"] = refl_std
     ds_out["lon"] = lon_mean
     ds_out["epoch_time"] = epoch_mean
 
     for k in ds:
-        if k in ['ReflectivityAttenuated', 'lon', "epoch_time"]:
+        if k in ['ReflectivityAttenuated', 'lon', "epoch_time", "noEcho"]:
             continue
         # average over the block dimensions the variable has (fov1 has only fov);
         # variables with neither (e.g. centerFreq) are copied below

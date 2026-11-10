@@ -208,6 +208,8 @@ def populate_obs_data(file_obs_data, sensor_name):
     obs_data[('Layer', metaDataName)] = file_obs_data.elevation1.values.astype(np.float32)
     obs_data[('sequenceNumber', metaDataName)] = file_obs_data.sequenceNumber.values.astype(np.int32)
     obs_data[('dateTime', metaDataName)] = file_obs_data.epoch_time.values.astype(np.int64)
+    if 'noEcho' in file_obs_data:      # no echo, value at the detection limit (CPR: 1; DPR: 1 Ku, 2 Ka, 3 both)
+        obs_data[('noEcho', metaDataName)] = file_obs_data.noEcho.values.astype(np.int32)
 
     obs_data[('sequenceNumber', metaDataName)] = file_obs_data.sequenceNumber.values.astype(np.int32)
 

@@ -70,6 +70,7 @@ def main(args):
         sys.exit()
 
     file_obs_data = []
+    seq_offset = 0
     for file_path in args.input_files:
         if not os.path.isfile(file_path):
             print(f"'{file_path}' does not exist or is not a file.")
@@ -86,6 +87,10 @@ def main(args):
         elif file_is_cpr_earthcare:
             xrdata = read_cpr_earthcare(file_path)
             if xrdata.Location.size > 0:
+               # sequenceNumber restarts in each granule: offset it so that it is unique per
+               # profile in the combined file (JEDI groups the bins of a profile by it)
+               xrdata['sequenceNumber'] = xrdata['sequenceNumber'] + seq_offset
+               seq_offset = int(xrdata['sequenceNumber'].max()) + 1
                file_obs_data.append(xrdata)
             sensor_name = 'EarthCARE-CPR'
         elif file_is_dpr_gpm:

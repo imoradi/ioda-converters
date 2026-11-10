@@ -255,6 +255,9 @@ def average_dpr_over_fov_scanline(ds_in,
     # --------------------------------------------------
     ds_out = xr.Dataset()
 
+    if os.environ.get("RADAR_LINEAR_UNIT", "0") == "1":
+        # linear reflectivity in cm6/m3 (1e-6 * 10**(dBZ/10), the unit of the JEDI DPR YAML); no echo is 0
+        dbz_mean = xr.where(noecho, 0.0, 1e-6 * 10 ** (dbz_mean / 10.0))
     ds_out["ReflectivityAttenuated"] = dbz_mean
     ds_out["noEcho"] = noecho_flag
     ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std

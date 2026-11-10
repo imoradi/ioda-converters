@@ -224,6 +224,9 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 25.0)):
 
     out = ec.isel(obs_id=mid)
     out = out.assign_coords(obs_id=np.arange(nblk))
+    if os.environ.get("RADAR_LINEAR_UNIT", "0") == "1":
+        # linear reflectivity in cm6/m3 (1e-6 * 10**(dBZ/10), the unit of the JEDI DPR/CPR YAMLs); no echo is 0
+        dbz_mean = np.where(noecho, 0.0, 1e-6 * 10 ** (dbz_mean / 10.0))
     out['ReflectivityAttenuated'] = (('obs_id', 'elevation'), dbz_mean.astype(np.float32))
     out['height'] = (('obs_id', 'elevation'), hmean.astype(np.float32))
     out['DopplerVelocity'] = (('obs_id', 'elevation'), dop_mean.astype(np.float32))

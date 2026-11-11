@@ -208,15 +208,25 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 22.0)):
     # block means below dbz_range[0] (weak means from scattered noise bins) are dropped too
     dbz_mean[~np.isfinite(dbz_mean) | (dbz_mean < dbz_range[0])] = np.nan
     hmean = np.nanmean(np.where(np.isfinite(zlin), height, np.nan).reshape(nblk, nprof, nlev), axis=1)
+    # height above the surface: bin height minus the block-mean height of the surface bin
+    sidx = np.clip(np.nan_to_num(sbin, nan=nlev - 1).astype(int), 0, nlev - 1)
+    hsurf = np.take_along_axis(height, sidx[:, None], axis=1)[:, 0]
+    with np.errstate(invalid='ignore'):
+        agl = hmean - np.nanmean(hsurf.reshape(nblk, nprof), axis=1)[:, None]
     # no echo: bins measured (above the surface) in the block whose mean is below dbz_range[0], i.e. clear or
     # below the detection limit. With CPR_KEEP_NOECHO=1 (default 0) they are kept at dbz_range[0] with
-    # MetaData/noEcho = 1, between CPR_NOECHO_BOTTOM_KM and CPR_NOECHO_TOP_KM (default 1-10 km); bins without a measurement are left out
+    # MetaData/noEcho = 1, between CPR_NOECHO_BOTTOM_KM and CPR_NOECHO_TOP_KM above the surface (default 1-10 km); bins without a measurement are left out
     noecho = np.isfinite(zmean) & ~np.isfinite(dbz_mean) & np.isfinite(hmean)
-    noecho &= ((hmean >= float(os.environ.get("CPR_NOECHO_BOTTOM_KM", "1")) * 1000.0)
-               & (hmean <= float(os.environ.get("CPR_NOECHO_TOP_KM", "10")) * 1000.0))
+    noecho &= ((agl >= float(os.environ.get("CPR_NOECHO_BOTTOM_KM", "1")) * 1000.0)
+               & (agl <= float(os.environ.get("CPR_NOECHO_TOP_KM", "10")) * 1000.0))
     if os.environ.get("CPR_KEEP_NOECHO", "0") != "1":
         noecho[:] = False
     dbz_mean[noecho] = dbz_range[0]
+    # surface clutter: bins less than CPR_CLUTTER_KM (default 0.5 km) above the surface are dropped
+    with np.errstate(invalid='ignore'):
+        clutter = ~(agl >= float(os.environ.get("CPR_CLUTTER_KM", "0.5")) * 1000.0)
+    dbz_mean[clutter] = np.nan
+    noecho &= ~clutter
     dop = ec['DopplerVelocity'].values.astype(np.float64)
     dop = np.where(inrange & np.isfinite(zlin), dop, np.nan)
     dop_mean = np.nanmean(dop.reshape(nblk, nprof, nlev), axis=1)
@@ -231,4 +241,5 @@ def average_cpr_along_track(ec, fname, tsec, nprof=51, dbz_range=(-30.0, 22.0)):
     out['height'] = (('obs_id', 'elevation'), hmean.astype(np.float32))
     out['DopplerVelocity'] = (('obs_id', 'elevation'), dop_mean.astype(np.float32))
     out['noEcho'] = (('obs_id', 'elevation'), noecho.astype(np.int32))
+    out['heightAboveSurface'] = (('obs_id', 'elevation'), agl.astype(np.float32))
     return out

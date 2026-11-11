@@ -109,6 +109,7 @@ def read_dpr_hdf_file(fname):
     dprdata['lat'] = valid(xr_data['FS/Latitude'])       # "nscan,nray=nfov";
     dprdata['lon'] = valid(xr_data['FS/Longitude'])      # "nscan,nray=nfov";
     dprdata['height'] = valid(xr_data['FS/PRE/height'])  # "nscan,nray=nfov,nbin=nelev";
+    dprdata['surfaceElevation'] = valid(xr_data['FS/PRE/elevation'])  # "nscan,nray=nfov" [m]
     dprdata['epoch_time'] = xr_data['FS/navigation/scLat'].copy()
     dprdata['epoch_time'].values = np.squeeze(epoch_time)
     
@@ -211,10 +212,12 @@ def average_dpr_over_fov_scanline(ds_in,
     dbz_mean = dbz_mean.where(np.isfinite(dbz_mean))
     # no echo: bins measured in the block whose mean is zero (no footprint at or above dbz_threshold), i.e.
     # clear or below the detection limit. With DPR_KEEP_NOECHO=1 (default 0) they are kept at dbz_threshold
-    # between DPR_NOECHO_BOTTOM_KM and DPR_NOECHO_TOP_KM (default 1-10 km); MetaData/noEcho is 1 (Ku), 2 (Ka)
+    # between DPR_NOECHO_BOTTOM_KM and DPR_NOECHO_TOP_KM above the surface (default 1-10 km); MetaData/noEcho is 1 (Ku), 2 (Ka)
     # or 3 (both) there. Bins without a measurement stay missing.
     hblock = ds['height'].coarsen({scan_dim: block_scan, fov_dim: block_fov}, boundary="exact").mean(skipna=True)
-    h_km = hblock / 1000.0 if float(hblock.max()) > 100 else hblock
+    sblock = ds['surfaceElevation'].coarsen({scan_dim: block_scan, fov_dim: block_fov}, boundary="exact").mean(skipna=True)
+    agl = hblock - sblock                       # height above the surface [m]
+    h_km = agl / 1000.0
     noecho = (np.isfinite(refl_mean) & (refl_mean == 0)
               & (h_km >= float(os.environ.get("DPR_NOECHO_BOTTOM_KM", "1")))
               & (h_km <= float(os.environ.get("DPR_NOECHO_TOP_KM", "10"))))
@@ -260,13 +263,14 @@ def average_dpr_over_fov_scanline(ds_in,
         dbz_mean = xr.where(noecho, 0.0, 1e-6 * 10 ** (dbz_mean / 10.0))
     ds_out["ReflectivityAttenuated"] = dbz_mean
     ds_out["noEcho"] = noecho_flag
+    ds_out["heightAboveSurface"] = agl
     ds_out["ReflectivityAttenuated_STD_dBZ"] = dbz_std
     ds_out["ReflectivityAttenuated_STD_cm6m3"] = refl_std
     ds_out["lon"] = lon_mean
     ds_out["epoch_time"] = epoch_mean
 
     for k in ds:
-        if k in ['ReflectivityAttenuated', 'lon', "epoch_time", "noEcho"]:
+        if k in ['ReflectivityAttenuated', 'lon', "epoch_time", "noEcho", "surfaceElevation"]:
             continue
         # average over the block dimensions the variable has (fov1 has only fov);
         # variables with neither (e.g. centerFreq) are copied below
